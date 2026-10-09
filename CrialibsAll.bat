@@ -7,12 +7,14 @@ setlocal EnableDelayedExpansion
 @Set MG_ROOT=%~dp0%
 @Set MG_LIB=%MG_ROOT%lib
 @Set MG_XLIB=%MG_ROOT%xlib
-@Set xcmd=-exitstr -gc3 -info -trace -v -jobs=%NUMBER_OF_PROCESSORS% 
+:: -jobs=N DESABILITADO: o harbour.exe compilado com BCC (harbour\bin) aborta com
+:: F0029 "Can't open #include file" sob processos paralelos. O build MinGW aceita -jobs.
+@Set xcmd=-exitstr -gc3 -info -trace -v
 
 set LOG=%MG_ROOT%LogGeral.log
 
 
-echo Definição paths: > %LOG%
+echo Definicao paths: > %LOG%
 echo MG_ROOT=%MG_ROOT% >> %LOG%
 echo MG_LIB=%MG_LIB% >> %LOG%
 echo MG_HRB=%MG_HRB% >> %LOG%
@@ -46,7 +48,7 @@ call :RunStep "Compilando hbsqlit3" "hbmk2 %xcmd% hbsqlit3.hbp"
 call :RunStep "Compilando hbvpdf" "hbmk2 %xcmd% hbvpdf.hbp"
 call :RunStep "Compilando hbxlsxml" "hbmk2 %xcmd% hbxlsxml.hbp"
 call :RunStep "Compilando hbxml" "hbmk2 %xcmd% hbxml.hbp"
-call :RunStep "Compilando hbzeegrid" "hbmk2 %xcmd% hbzeegrid.hbp"
+rem call :RunStep "Compilando hbzeegrid" "hbmk2 %xcmd% hbzeegrid.hbp"
 call :RunStep "Compilando hbziparc" "hbmk2 %xcmd% hbziparc.hbp"
 call :RunStep "Compilando easy_sql" "hbmk2 %xcmd% easy_sql.hbp"
 call :RunStep "Compilando hmg_hpdf" "hbmk2 %xcmd% hmg_hpdf.hbp"
@@ -67,6 +69,7 @@ call :RunStep "Compilando tmsagent" "hbmk2 %xcmd% tmsagent.hbp"
 call :RunStep "Compilando tsbrowse" "hbmk2 %xcmd% tsbrowse.hbp"
 call :RunStep "Compilando winreport" "hbmk2 %xcmd% winreport.hbp"
 
+if defined BUILD_FAILED goto :failed
 
 @Set MG_CMP=
 @Set MG_BCC=
@@ -75,7 +78,7 @@ echo.
 echo BUILD FINALIZADO COM SUCESSO
 echo ===== BUILD OK ===== >> %LOG%
 @EndLocal
-goto :eof
+exit /b 0
 
 
 
@@ -108,16 +111,22 @@ if NOT "%RET%"=="0" (
     echo ERRO no passo: %STEP% >> %LOG%
     echo Codigo: %RET% >> %LOG%
 
-    goto error
+    if not defined BUILD_FAILED set "FAILED_STEP=%STEP%"
+    set "BUILD_FAILED=1"
+    exit /b %RET%
 )
 
 exit /b 0
 ::---------------------------------------
-:error
+:failed
 echo.
 echo ===== BUILD FALHOU =====
+echo Primeiro passo com erro: !FAILED_STEP!
 echo Veja o log: %LOG%
-exit /b %RET%
+echo ===== BUILD FALHOU ===== >> %LOG%
+echo Primeiro passo com erro: !FAILED_STEP! >> %LOG%
+@EndLocal
+exit /b 1
 
 
 

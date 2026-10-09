@@ -81,6 +81,7 @@ INIT PROCEDURE ClipInit()
    
    // Call the internal HMG initialization routine to set up global structures.
    Init()
+
 RETURN
 
 /*
@@ -89,7 +90,9 @@ RETURN
  * Logic:     Ensures the Windows process is properly closed.
  */
 EXIT PROCEDURE ClipExit()
+
    ExitProcess()
+
 RETURN
 
 #ifndef __XHARBOUR__
@@ -101,7 +104,9 @@ RETURN
  *            launching a GUI-based HMG application.
  */
 PROCEDURE hb_GTSYS
+
    REQUEST HB_GT_GUI_DEFAULT
+
 RETURN
 #endif
 
@@ -154,7 +159,7 @@ FUNCTION MiniGuiVersion( nVersion )
    LOCAL cVersion
    
    // Define the base version string.
-   #define MG_VERSION "Harbour MiniGUI Extended Edition 26.07.0 ("
+   #define MG_VERSION "Harbour MiniGUI Extended Edition 26.10.0 ("
    
 #ifndef __XHARBOUR__
    // Use Harbour's native version function to detect 32-bit vs 64-bit builds.

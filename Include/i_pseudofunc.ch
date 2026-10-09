@@ -128,6 +128,10 @@ SendMessage( GetControlHandle( <ControlName> , <FormName> ) , WM_USER+10 , iif(<
 => ;
 SetProperty( <FormName> , <ControlName>, "Value", iif(<Value>, 1, 0) )
 
+#xtranslate GetProperty ( <FormName> , <ControlName> , "Stretch" ) ;
+=> ;
+( GetProperty( <FormName> , <ControlName>, "Value" ) == 1 )
+
 ////////////////////////////////////////////
 // Variable type identifier pseudo-functions
 ////////////////////////////////////////////
@@ -264,7 +268,7 @@ cFilePath( <cFile> ) + "\" + cFileNoExt( <cFile> ) + <cExt>
 #  xtranslate hb_BLen( <c> )              => Len( <c> )
 #endif
 
-#if ( __HARBOUR__ - 0 > 0x030200 )
+#if ( __HARBOUR__ - 0 > 0x030201 )
 #  xtranslate hb_oemtoansi( <x> )         => win_oemtoansi( <x> )
 #  xtranslate __MvGetDef( <x> , <v> )     => iif( __MvExist ( <x> ), __MvGet( <x> ), iif( ValType( <v> ) <> "U", <v>, NIL ) )
 #  xtranslate __MvGetDef( <x> )           => iif( __MvExist ( <x> ), __MvGet( <x> ), NIL )

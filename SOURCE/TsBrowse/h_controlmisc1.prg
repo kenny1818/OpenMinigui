@@ -2,6 +2,18 @@
 #  define HB_SYMBOL_UNUSED( symbol ) ( ( symbol ) )
 #endif
 
+#define SPI_GETWHEELSCROLLLINES      0x0068
+
+FUNCTION GetWheelScrollLines()
+
+   LOCAL nLines := 0
+
+   IF ! SystemParametersInfo( SPI_GETWHEELSCROLLLINES, 0, @nLines, 0 )
+      nLines := 3
+   ENDIF
+
+RETURN nLines
+
 
 FUNCTION _GetTextHeight( hwnd, hDC )
 

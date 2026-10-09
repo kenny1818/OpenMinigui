@@ -146,12 +146,18 @@ LRESULT APIENTRY SubClassFunc( HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
       {
          // Simulate a physical Up Arrow key press to move selection up
          keybd_event( VK_UP, 0, 0, 0 );
+         keybd_event( VK_UP, 0, KEYEVENTF_KEYUP, 0 ); // Release UP key
       }
       else
       {
          // Simulate a physical Down Arrow key press to move selection down
          keybd_event( VK_DOWN, 0, 0, 0 );
+         keybd_event( VK_DOWN, 0, KEYEVENTF_KEYUP, 0 ); // Release DOWN key
       }
+
+      // IMPORTANT: We return 0 to consume the message.
+      // This prevents the original ListView from performing its native scroll (which causes the horizontal shift).
+      return 0;
    }
 
    // Pass all other messages (and the wheel message) to the original handler

@@ -218,7 +218,7 @@ FUNCTION _lValidScrSaver()
 
    CLOSE REGISTRY oReg
 
-   IF nValue == 1
+   IF nValue == 1 .AND. !iswinnt()
       lRet := VerifyPassword( GetActiveWindow() )
    ELSE
       lRet := .T.

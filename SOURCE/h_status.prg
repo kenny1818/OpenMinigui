@@ -47,37 +47,53 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 #include "minigui.ch"
 
+// Win32 common control definitions for status bars
 #define ID_STATUSBAR    0
 #define SB_SETTEXT      (WM_USER+1)
 #define SBT_OWNERDRAW   0x1000
 
+// Internal control class name and system object identifiers
 #define ITEMTYPENAME    "ITEMMESSAGE"
 #define ITEMNAME        "StatusItem"
 #define PROGRESSNAME    "ProgressMessage"
 
-/*
- * Compatibility macro for Harbour/xHarbour versions.
- * Ensures hb_UAt (Unicode-aware At) is available or mapped to standard At().
- */
+// Map Unicode-aware string search function hb_UAt to At for legacy xHarbour/Harbour
 #if defined( __XHARBOUR__ ) .OR. ( __HARBOUR__ - 0 < 0x030200 )
 #xtranslate hb_UAt( <c>, <n> ) => At( <c>, <n> )
 #endif
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _BeginMessageBar
+ *
+ * Purpose:
+ *    Initializes and begins the creation sequence for a status bar (message bar)
+ *    control associated with a parent window.
+ *
+ * Parameters:
+ *    ControlName : Character - Identifier name for the new status bar control.
+ *    ParentForm  : Character - Name of the parent window. Defaults to active window if NIL.
+ *    kbd         : Logical   - Flag indicating whether to append standard keyboard indicator panels.
+ *    FontName    : Character - Name of the font face for text rendering.
+ *    FontSize    : Numeric   - Size of the font in points.
+ *    Bold        : Logical   - Flag for bold font weight.
+ *    Italic      : Logical   - Flag for italic font style.
+ *    UnderLine   : Logical   - Flag for underline font style.
+ *    StrikeOut   : Logical   - Flag for strikeout font style.
+ *    Message     : Character - Initial text message to display in the main panel.
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Creates the underlying Win32 status bar control window.
+ *    - Registers control in global internal arrays (_HMG_aControl*).
+ *    - Sets active status bar global state variables (_HMG_ActiveMessageBarName, _HMG_ActiveStatusHandle).
+ */
 FUNCTION _BeginMessageBar( ControlName, ParentForm, kbd, ;
                            FontName, FontSize, Bold, Italic, ;
                            UnderLine, StrikeOut, Message )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Initializes the creation of a Message Bar (Status Bar) within a form.
- * Parameters:
- *    - ControlName: Unique identifier for the status bar.
- *    - ParentForm: Name of the form containing the bar.
- *    - kbd: Logical; if .T., automatically adds keyboard state indicators (Num, Caps, Ins).
- *    - Font/Style params: Define the visual appearance of the text.
- *    - Message: Initial text to display in the first panel.
- * Side Effects: Updates HMG internal state, registers the control, and creates the Win32 handle.
- */
 
    LOCAL hParent
    LOCAL hControl
@@ -85,15 +101,15 @@ FUNCTION _BeginMessageBar( ControlName, ParentForm, kbd, ;
    LOCAL aRect := { 0, 0, 0, 0 }
    LOCAL nIndex
 
-   // Track the currently active message bar for subsequent item definitions
+   // Set global active message bar name for subsequent item additions
    _HMG_ActiveMessageBarName := ControlName
 
-   // If no parent is specified, default to the form currently being defined
+   // Default to currently active window definition if parent is not specified
    IF ParentForm == NIL
       ParentForm := _HMG_ActiveFormName
    ENDIF
 
-   // Validation: Ensure the parent exists and the control name is unique
+   // Validate existence of parent form and ensure control name uniqueness
    IF ! _IsWindowDefined( ParentForm )
       MsgMiniGuiError( "Window: " + ParentForm + " is not defined." )
    ENDIF
@@ -105,11 +121,11 @@ FUNCTION _BeginMessageBar( ControlName, ParentForm, kbd, ;
          " Already defined." )
    ENDIF
 
-   // Font Handling: Retrieve existing handle or prepare to create a new one
+   // Retrieve handle of pre-defined font if available
    hFont := GetFontHandle( FontName )
 
    IF hFont != 0
-      // Extract attributes from an existing font handle to ensure consistency
+      // Extract existing font parameters to synchronize style attributes
       GetFontParamByRef( ;
          hFont, ;
          @FontName, ;
@@ -120,23 +136,23 @@ FUNCTION _BeginMessageBar( ControlName, ParentForm, kbd, ;
          @StrikeOut )
    ENDIF
 
-   // Inherit parent window font if within a Begin Window block and no font specified
+   // Inherit active window font attributes when defined inside a window context
    IF _HMG_BeginWindowActive
       __defaultNIL( @FontName, _HMG_ActiveFontName )
       __defaultNIL( @FontSize, _HMG_ActiveFontSize )
    ENDIF
 
-   // Create the physical Win32 Status Bar control
+   // Obtain Win32 handle for parent form and create native status bar control
    hParent := GetFormHandle( ParentForm )
    hControl := InitMessageBar( hParent, ID_STATUSBAR )
 
    _HMG_ActiveStatusHandle := hControl
 
-   // Apply font to the control
+   // Apply existing font handle or construct a new GDI font object
    IF hFont != 0
       _SetFontHandle( hControl, hFont )
    ELSE
-      // Fallback to system defaults if no font provided
+      // Fall back to system default GUI font configuration
       __defaultNIL( @FontName, _HMG_DefaultFontName )
       __defaultNIL( @FontSize, _HMG_DefaultFontSize )
 
@@ -150,10 +166,10 @@ FUNCTION _BeginMessageBar( ControlName, ParentForm, kbd, ;
          StrikeOut )
    ENDIF
 
-   // Retrieve dimensions for internal HMG tracking
+   // Query client rect to store initial control dimensions
    GetClientRect( hControl, aRect )
 
-   // Register the control in HMG's global arrays for property management
+   // Register status bar in HMG internal control tracking tables
    nIndex := _RegisterControl( ;
              ControlName, ;
              ParentForm, ;
@@ -162,7 +178,7 @@ FUNCTION _BeginMessageBar( ControlName, ParentForm, kbd, ;
              "MESSAGEBAR", ;
              ID_STATUSBAR )
 
-   // Store initial properties in HMG's internal state arrays
+   // Populate control state arrays with dimensions and font configuration
    _HMG_aControlValue[ nIndex ] := Message
 
    _HMG_aControlWidth[ nIndex ] := aRect[3]
@@ -174,10 +190,10 @@ FUNCTION _BeginMessageBar( ControlName, ParentForm, kbd, ;
    _HMG_aControlFontHandle[ nIndex ] := hFont
    _HMG_aControlFontAttributes[ nIndex ] := { Bold, Italic, UnderLine, StrikeOut }
 
-   // Reset item counter for the new bar
+   // Reset item counter for child panel definitions
    _HMG_StatusItemCount := 0
 
-   // If requested, append the standard keyboard status indicators
+   // Append standard keyboard status panels (Num, Caps, Scroll) if requested
    IF kbd
       _SetStatusBarKbd( ControlName, ParentForm )
    ENDIF
@@ -185,15 +201,26 @@ FUNCTION _BeginMessageBar( ControlName, ParentForm, kbd, ;
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _EndMessageBar
+ *
+ * Purpose:
+ *    Finalizes the status bar definition, ensuring default items and progress
+ *    controls are properly configured and laid out.
+ *
+ * Parameters:
+ *    None
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - May define a default status bar item if no panels were added.
+ *    - Refreshes position/size of any embedded progress bar control.
+ *    - Resets active status bar tracking globals.
+ */
 FUNCTION _EndMessageBar()
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Finalizes the Message Bar definition block.
- * Logic: 
- *    - Ensures the bar has at least one item (Win32 requirement to avoid resize artifacts).
- *    - Refreshes any embedded progress bars.
- *    - Cleans up the "Active" bar state.
- */
    LOCAL ParentForm
    LOCAL i
 
@@ -202,52 +229,64 @@ FUNCTION _EndMessageBar()
       i := GetControlIndex ( _HMG_ActiveMessageBarName, ParentForm )
 #ifdef _HMG_COMPAT_
    ELSE
-      // Support for definitions outside of standard Begin/End Window blocks
+      // Handle legacy/compatibility mode outside window definition block
       i := GetControlIndexByHandle ( _HMG_ActiveStatusHandle )
       ParentForm := GetParentFormName( i )
 #endif
    ENDIF
 
-   // Safety Check: A status bar with 0 items can cause crashes during WM_SIZE events.
-   // We create a default item if none were defined by the user.
+   // Ensure status bar has at least one panel to prevent rendering anomalies
    IF _HMG_StatusItemCount == 0 
       _DefineItemMessage( ITEMNAME, _HMG_ActiveMessageBarName, 0, 0, ;
          hb_defaultValue( _HMG_aControlValue[ i ], GetProperty( ParentForm, "Title" ) ), , , 0, , , , .F. )
    ENDIF
 
-   // If a progress bar was defined within this status bar, trigger a refresh
+   // Recalculate dimensions and refresh layout for embedded progress bar if present
    IF ( i := GetControlIndex( PROGRESSNAME, ParentForm ) ) != 0
       RefreshProgressItem( _HMG_aControlMiscData1[ i, 1 ], _HMG_aControlHandles[ i ], _HMG_aControlMiscData1[ i, 2 ] )
    ENDIF
 
-   // Reset global pointers
+   // Clear active status bar context globals
    _HMG_ActiveMessageBarName := ""
    _HMG_StatusItemCount := 0
 
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
-STATIC FUNCTION _RegisterControl( ;
-   cControlName, ;
-   cParentForm, ;
-   hParentForm, ;
-   hControl, ;
-   cType, ;
-   nId )
-*-----------------------------------------------------------------------------*
 /*
- * Purpose: Internal helper to populate HMG's parallel arrays with control data.
- * Reasoning: HMG uses a set of global arrays to track every control's state, 
- * handles, and properties. This function finds an empty slot and initializes it.
+ * STATIC FUNCTION _RegisterControl
+ *
+ * Purpose:
+ *    Allocates an entry in HMG global control arrays and populates default
+ *    properties for a new control instance.
+ *
+ * Parameters:
+ *    cControlName : Character - Identifier name of the control.
+ *    cParentForm  : Character - Identifier name of the parent window.
+ *    hParentForm  : Numeric   - Win32 handle of the parent window.
+ *    hControl     : Numeric   - Win32 handle of the control.
+ *    cType        : Character - HMG internal control type string.
+ *    nId          : Numeric   - Control resource/command identifier.
+ *
+ * Return:
+ *    Numeric - Index of the registered control in HMG internal arrays.
+ *
+ * Side Effects:
+ *    - Allocates dynamic memory in global arrays (_HMG_aControl*).
+ *    - Declares a global reference variable for the control index.
+ *    - Invokes OOP control initialization callback if OOP mode is enabled.
  */
+STATIC FUNCTION _RegisterControl( cControlName, cParentForm, hParentForm, ;
+                                  hControl, cType, nId )
+*-----------------------------------------------------------------------------*
 
    LOCAL cVarName
    LOCAL k
 
-   // Find the next available index in the global control arrays
+   // Reserve a free slot in HMG internal parallel tracking arrays
    k := _GetControlFree()
 
-   // Create a unique variable name for the control (e.g., _Main_StatusBar1)
+   // Construct global handle variable identifier name
    cVarName := "_" + cParentForm + "_" + cControlName
 
 #ifdef _NAMES_LIST_
@@ -260,14 +299,14 @@ STATIC FUNCTION _RegisterControl( ;
 
 #endif
 
-   // Initialize core Win32 and HMG identification fields
+   // Assign core identifying handles and control parameters
    _HMG_aControlType[ k ]              := cType
    _HMG_aControlNames[ k ]             := cControlName
    _HMG_aControlHandles[ k ]           := hControl
    _HMG_aControlParentHandles[ k ]     := hParentForm
    _HMG_aControlIds[ k ]               := nId
 
-   // Initialize default values for all possible control properties to prevent NIL errors
+   // Initialize event handlers, state flags, and formatting properties
    _HMG_aControlProcedures[ k ]        := ""
    _HMG_aControlPageMap[ k ]           := {}
 
@@ -324,7 +363,7 @@ STATIC FUNCTION _RegisterControl( ;
    _HMG_aControlMiscData1[ k ]         := 0
    _HMG_aControlMiscData2[ k ]         := ""
 
-   // If Object-Oriented Programming mode is enabled, trigger the init callback
+   // Trigger object-oriented framework integration hook if active
    IF _HMG_lOOPEnabled
       Eval( _HMG_bOnControlInit, k, cVarName )
    ENDIF
@@ -332,21 +371,43 @@ STATIC FUNCTION _RegisterControl( ;
 RETURN k
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _DefineItemMessage
+ *
+ * Purpose:
+ *    Defines and appends an individual message panel (status item) to a status bar.
+ *
+ * Parameters:
+ *    ControlName   : Character - Identifier name for the panel item.
+ *    ParentControl : Character - Identifier name of the status bar container.
+ *    x             : Numeric   - Horizontal coordinate offset (reserved).
+ *    y             : Numeric   - Vertical coordinate offset (reserved).
+ *    Caption       : Character - Text string displayed inside the panel.
+ *    ProcedureName : Character/Block - Event procedure or block executed on click.
+ *    w             : Numeric   - Width of the panel in pixels. Auto-sized if NIL.
+ *    h             : Numeric   - Height of the panel in pixels (reserved).
+ *    Icon          : Character - Icon resource name or filename.
+ *    cStyl         : Character - Visual style designation ("RAISED", "FLAT", or standard).
+ *    ToolTip       : Character - Tooltip string for the status panel.
+ *    Default       : Logical   - Sets caption as default window message if .T.
+ *    BackColor     : Array     - RGB array `{R,G,B}` for custom background color.
+ *    FontColor     : Array     - RGB array `{R,G,B}` for custom text color.
+ *    Align         : Numeric   - Text alignment (0 = Left, 1 = Center, 2 = Right).
+ *
+ * Return:
+ *    Numeric - Win32 handle of the status item panel.
+ *
+ * Side Effects:
+ *    - Appends a new panel to the Win32 status bar control.
+ *    - Registers item in internal HMG control tracking arrays.
+ *    - Registers accelerator hotkey if caption contains an ampersand (&).
+ *    - Switches panel to owner-draw mode if custom colors are assigned.
+ */
 FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
                              ProcedureName, w, h, Icon, cStyl, ;
                              ToolTip, Default, BackColor, ;
                              FontColor, Align )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Defines an individual panel (item) within the status bar.
- * Parameters:
- *    - Caption: Text to display.
- *    - ProcedureName: Action to execute on click.
- *    - w: Width. If NIL, it's auto-calculated based on text length.
- *    - Default: If .T., this item's text is stored as the bar's default message.
- *    - BackColor/FontColor: Used for owner-drawn items.
- * Returns: Handle to the created item.
- */
 
    LOCAL hControl
    LOCAL hParentForm
@@ -357,7 +418,7 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
    LOCAL nIndex
    LOCAL nHotPos
 
-   // Resolve the parent form context
+   // Resolve parent form context
    IF _HMG_BeginWindowActive
       ParentForm := _HMG_ActiveFormName
 #ifdef _HMG_COMPAT_
@@ -371,7 +432,7 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
       MsgMiniGuiError( "Window: " + ParentForm + " is not defined." )
    ENDIF
 
-   // Default to the currently active message bar if not specified
+   // Fall back to current active message bar if parent control is omitted
    IF ParentControl == NIL
       ParentControl := _HMG_ActiveMessageBarName
    ENDIF
@@ -380,7 +441,7 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
    hParentForm := GetFormHandle( ParentForm )
    hStatusBar := GetControlHandle( ParentControl, ParentForm )
 
-   // Auto-calculate width based on text content and font if width is not provided
+   // Auto-calculate panel width based on text extent if width parameter is missing
    IF w == NIL
       w := Max( ;
          70, ;
@@ -393,7 +454,7 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
          ) + 6 )
    ENDIF
 
-   // Accelerator Key Handling: Check for '&' in caption to define a hotkey
+   // Register keyboard shortcut if caption contains an accelerator prefix (&)
    IF ! Empty( ProcedureName )
       cCaption := Upper( Caption )
       nHotPos := hb_UAt( "&", cCaption )
@@ -405,17 +466,16 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
             cParentForm, ;
             ProcedureName )
       ENDIF
-      // Remove the '&' character before displaying in the UI
+      // Strip accelerator character for presentation
       Caption := StrTran( Caption, "&", "" )
    ENDIF
 
-   // Store the default message for the status bar if flagged
+   // Assign default message global variable if requested
    IF hb_defaultValue( Default, .F. )
       _HMG_DefaultStatusBarMessage := Caption
    ENDIF
 
-   // Win32 Logic: The first item (index 0) usually stretches to fill space.
-   // We set width/height to 0 for the first item to allow this behavior.
+   // Adjust dimensions for first item vs subsequent items in native Win32 layout
    IF ++_HMG_StatusItemCount == 1
       w := 0
       h := 0
@@ -425,7 +485,7 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
 
    hb_default( @cStyl, "" )
 
-   // Initialize the item via the Win32 API wrapper
+   // Create status bar panel using C-level Win32 API wrapper
    hControl := InitItemBar( ;
       hStatusBar, ;
       Caption, ;
@@ -440,7 +500,7 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
          iif( Upper( cStyl ) == "FLAT", 2, 0 ) ;
       ) )
 
-   // Register the item as a sub-control in HMG
+   // Register panel item in HMG global control tracking arrays
    nIndex := _RegisterControl( ;
              ControlName, ;
              cParentForm, ;
@@ -466,15 +526,14 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
 
    _HMG_aControlCaption[ nIndex ] := Caption
 
-   // Ensure aligned items have a visible font color
+   // Ensure default font color for aligned items
    IF _HMG_aControlSpacing[ nIndex ] > 0 .AND. ;
       _HMG_aControlFontColor[ nIndex ] == NIL
       FontColor := BLACK
       _HMG_aControlFontColor[ nIndex ] := FontColor
    ENDIF
 
-   // Owner-Draw Activation: If custom colors are used, we must notify the 
-   // Win32 control to send WM_DRAWITEM messages to the parent.
+   // Enable owner-draw mode when custom background or font colors are specified
    IF IsArrayRGB( BackColor ) .OR. ;
       IsArrayRGB( FontColor )
 
@@ -489,13 +548,33 @@ FUNCTION _DefineItemMessage( ControlName, ParentControl, x, y, Caption, ;
 RETURN hControl
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _SetStatusClock
+ *
+ * Purpose:
+ *    Creates a clock panel in the status bar that automatically updates time
+ *    display every second via a dedicated timer.
+ *
+ * Parameters:
+ *    BarName   : Character - Name of the target status bar control.
+ *    FormName  : Character - Name of the parent window.
+ *    Width     : Numeric   - Width of the clock panel in pixels.
+ *    ToolTip   : Character - Tooltip text for the clock panel.
+ *    Action    : Character/Block - Event procedure or block executed on click.
+ *    lAMPM     : Logical   - Use 12-hour AM/PM format if .T., else 24-hour format.
+ *    BackColor : Array     - RGB background color `{R,G,B}`.
+ *    FontColor : Array     - RGB text color `{R,G,B}`.
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Creates a status bar item named "TimerBar".
+ *    - Creates an active system timer "StatusTimer" set to a 1000ms interval.
+ */
 FUNCTION _SetStatusClock( BarName, FormName, Width, ToolTip, ;
                           Action, lAMPM, BackColor, FontColor )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Adds a dynamic clock item to the status bar.
- * Logic: Creates a standard item and a 1-second timer to update its text.
- */
 
    LOCAL nItem
 
@@ -504,7 +583,7 @@ FUNCTION _SetStatusClock( BarName, FormName, Width, ToolTip, ;
    __defaultNIL( @ToolTip, "" )
    __defaultNIL( @Action,  "" )
 
-   // Define the item that will hold the time string
+   // Create status bar item to display formatted system time
    nItem := _DefineItemMessage( ;
       "TimerBar", ;
       BarName, ;
@@ -523,6 +602,7 @@ FUNCTION _SetStatusClock( BarName, FormName, Width, ToolTip, ;
       1 )
 
 #ifdef _HMG_COMPAT_
+   // Identify parent form outside active window definition scope
    IF ! _HMG_BeginWindowActive
       FormName := ;
          GetParentFormName( ;
@@ -530,7 +610,7 @@ FUNCTION _SetStatusClock( BarName, FormName, Width, ToolTip, ;
    ENDIF
 #endif
 
-   // Create a timer to refresh the clock every 1000ms
+   // Define periodic timer to refresh clock display every second
    _DefineTimer( ;
       "StatusTimer", ;
       FormName, ;
@@ -547,12 +627,29 @@ FUNCTION _SetStatusClock( BarName, FormName, Width, ToolTip, ;
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _SetStatusKeybrd
+ *
+ * Purpose:
+ *    Adds graphical LED indicators for NumLock, CapsLock, and Insert keys
+ *    to the status bar with automatic state polling.
+ *
+ * Parameters:
+ *    BarName  : Character - Name of the target status bar control.
+ *    FormName : Character - Name of the parent window.
+ *    Width    : Numeric   - Base panel width for each key indicator.
+ *    ToolTip  : Character - Tooltip text for the key panels.
+ *    Action   : Character/Block - Custom action when an indicator is clicked.
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Defines status panels "TimerNum", "TimerCaps", and "TimerInsert".
+ *    - Creates an active system timer "StatusKeyBrd" set to a 250ms interval.
+ */
 FUNCTION _SetStatusKeybrd( BarName, FormName, Width, ToolTip, Action )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Adds visual indicators for NumLock, CapsLock, and Insert keys.
- * Logic: Uses icons (LED on/off) and a high-frequency timer (250ms) to poll key states.
- */
 
    LOCAL nNumLock
    LOCAL nCapsLock
@@ -563,28 +660,29 @@ FUNCTION _SetStatusKeybrd( BarName, FormName, Width, ToolTip, Action )
    __defaultNIL( @ToolTip, "" )
    __defaultNIL( @Action,  "" )
 
-   // NumLock Indicator Setup
+   // Create NumLock status panel with click-toggle handler
    bAction := iif( Empty( Action ), {|| KeyTogglePlatform( VK_NUMLOCK ) }, Action )
    nNumLock := _DefineItemMessage( "TimerNum", BarName, 0, 0, "NumLock", bAction, Width + 20, 0, ;
       iif( IsNumLockActive(), "zzz_led_on", "zzz_led_off" ), "", ToolTip )
 
-   // CapsLock Indicator Setup
+   // Create CapsLock status panel with click-toggle handler
    bAction := iif( Empty( Action ), {|| KeyTogglePlatform( VK_CAPITAL ) }, Action )
    nCapsLock := _DefineItemMessage( "TimerCaps", BarName, 0, 0, "CapsLock", bAction, Width + 25, 0, ;
       iif( IsCapsLockActive(), "zzz_led_on", "zzz_led_off" ), "", ToolTip )
 
-   // Insert Indicator Setup
+   // Create Insert status panel with click-toggle handler
    bAction := iif( Empty( Action ), {|| KeyTogglePlatform( VK_INSERT ) }, Action )
    nInsert := _DefineItemMessage( "TimerInsert", BarName, 0, 0, "Insert", bAction, Width, 0, ;
       iif( IsInsertActive(), "zzz_led_on", "zzz_led_off" ), "", ToolTip )
 
 #ifdef _HMG_COMPAT_
+   // Resolve parent form handle outside active window declaration context
    IF ! _HMG_BeginWindowActive
       FormName := GetParentFormName( GetControlIndexByHandle( _HMG_ActiveStatusHandle ) )
    ENDIF
 #endif
 
-   // Timer to poll and update the LED icons based on actual keyboard state
+   // Define timer to poll keyboard state every 250ms and update icon displays
    _DefineTimer( ;
       "StatusKeyBrd", ;
       FormName, ;
@@ -598,12 +696,25 @@ FUNCTION _SetStatusKeybrd( BarName, FormName, Width, ToolTip, Action )
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION KeyTogglePlatform
+ *
+ * Purpose:
+ *    Toggles the toggle state (e.g. NumLock, CapsLock) of a virtual key in
+ *    an OS platform-compatible manner.
+ *
+ * Parameters:
+ *    nKeyCode : Numeric - Win32 virtual key code (e.g., VK_NUMLOCK, VK_CAPITAL).
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Synthesizes key press/release events to toggle keyboard hardware state.
+ */
 FUNCTION KeyTogglePlatform( nKeyCode )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Cross-platform (Win9x vs NT) key toggling.
- * Reasoning: Windows NT/XP+ requires different API calls for simulating key presses.
- */
+   // Use NT key event API on Windows XP or newer platforms
    IF _HMG_IsXPorLater
       KeyToggleNT( nKeyCode )
    ELSE
@@ -613,17 +724,27 @@ FUNCTION KeyTogglePlatform( nKeyCode )
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _IsOwnerDrawStatusBarItem
+ *
+ * Purpose:
+ *    Checks if a status bar item uses owner-draw rendering (custom colors)
+ *    and optionally updates or returns item control metadata.
+ *
+ * Parameters:
+ *    ParentHandle : Numeric - Win32 handle of the parent status bar.
+ *    ItemID       : Numeric - 1-based index of the status bar item panel.
+ *    Value        : Mixed   - Pass-by-reference output/input value (caption or control index).
+ *    lSet         : Logical - If .T., assigns Value to item caption; else returns index in Value.
+ *
+ * Return:
+ *    Logical - .T. if the status bar item is owner-drawn, .F. otherwise.
+ *
+ * Side Effects:
+ *    - May update `_HMG_aControlCaption` array entry when `lSet` is .T.
+ */
 FUNCTION _IsOwnerDrawStatusBarItem( ParentHandle, ItemID, Value, lSet )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Checks if a specific status bar item is configured for owner-drawing.
- * Parameters:
- *    - ParentHandle: Handle of the status bar.
- *    - ItemID: Index of the panel.
- *    - Value: Text to set (if lSet is .T.).
- *    - lSet: Logical; if .T., updates the internal caption.
- * Returns: .T. if the item requires owner-drawing (custom colors).
- */
    LOCAL h
    LOCAL nLocID := 0
    LOCAL lOwnerDraw := .F.
@@ -635,7 +756,7 @@ FUNCTION _IsOwnerDrawStatusBarItem( ParentHandle, ItemID, Value, lSet )
       ItemID := 1
    ENDIF
 
-   // Iterate through all registered controls to find the matching status item
+   // Search container handle registry for matching status bar panel index
    FOR EACH h IN _HMG_aControlContainerHandle
 
       i := hb_enumindex( h )
@@ -643,12 +764,12 @@ FUNCTION _IsOwnerDrawStatusBarItem( ParentHandle, ItemID, Value, lSet )
       IF h == ParentHandle .AND. _HMG_aControlType[ i ] == ITEMTYPENAME
 
          IF ++nLocID == ItemID
-            // Item is owner-drawn if either background or font color is defined
+            // Item is owner-drawn if background or font colors are explicitly defined
             IF ( lOwnerDraw := ( _HMG_aControlBkColor[ i ] != NIL .OR. _HMG_aControlFontColor[ i ] != Nil ) )
                IF lSet
                   _HMG_aControlCaption[ i ] := Value
                ELSE
-                  Value := i // Return the internal index
+                  Value := i
                ENDIF
             ENDIF
 
@@ -662,15 +783,33 @@ FUNCTION _IsOwnerDrawStatusBarItem( ParentHandle, ItemID, Value, lSet )
 
 RETURN lOwnerDraw
 
-// (GF) HMG 1.2 Extended Build 25
-*-----------------------------------------------------------------------------*
-STATIC FUNCTION AMPM( cTime )
+// Keyboard indicator panel width constants
+#define KBD_CAPS_WIDTH    38
+#define KBD_NUMLOCK_WIDTH 42
+#define KBD_SCROLL_WIDTH  44
+
 *-----------------------------------------------------------------------------*
 /*
- * Purpose: Converts 24-hour time string to 12-hour format with AM/PM suffix.
+ * STATIC FUNCTION AMPM
+ *
+ * Purpose:
+ *    Converts a 24-hour time string ("HH:MM:SS") into 12-hour format with
+ *    "am" or "pm" suffix.
+ *
+ * Parameters:
+ *    cTime : Character - 24-hour time string.
+ *
+ * Return:
+ *    Character - Formatted 12-hour time string with am/pm indicator.
+ *
+ * Side Effects:
+ *    None
  */
+STATIC FUNCTION AMPM( cTime )
+*-----------------------------------------------------------------------------*
    LOCAL nHour := Val( cTime )
 
+   // Convert hour value and append 12-hour meridian designation
    DO CASE
    CASE nHour == 0 .OR. nHour == 24
       cTime := "12" + SubStr( cTime, 3 ) + " am"
@@ -684,33 +823,42 @@ STATIC FUNCTION AMPM( cTime )
 
 RETURN cTime
 
-// Keyboard indicator widths for the text-based status bar
-#define KBD_CAPS_WIDTH    38
-#define KBD_NUMLOCK_WIDTH 42
-#define KBD_SCROLL_WIDTH  44
-
-*-----------------------------------------------------------------------------*
-FUNCTION _SetStatusBarKbd ( BarName, FormName )
 *-----------------------------------------------------------------------------*
 /*
- * Purpose: Alternative keyboard indicator style using text labels (CAP, NUM, SCRL).
- * Logic: Changes font color (Black for active, Silver for inactive) via a timer.
+ * FUNCTION _SetStatusBarKbd
+ *
+ * Purpose:
+ *    Appends text-based keyboard status indicators (CAP, NUM, SCRL) to a status
+ *    bar and starts a periodic timer to update their active highlight colors.
+ *
+ * Parameters:
+ *    BarName  : Character - Name of the target status bar control.
+ *    FormName : Character - Name of the parent window.
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Creates four status panels (main message item and three key state indicators).
+ *    - Creates an active system timer "StatusBarKbd" with 250ms polling interval.
  */
+FUNCTION _SetStatusBarKbd ( BarName, FormName )
+*-----------------------------------------------------------------------------*
    LOCAL i := GetControlIndex ( BarName, FormName )
    LOCAL hWnd := GetFormHandle( FormName )
 
-   // Main message item
+   // Define primary message panel, defaulting to window title if value is empty
    _DefineItemMessage ( ITEMNAME, BarName, 0, 0, ;
       hb_defaultValue( _HMG_aControlValue[ i ], GetProperty ( FormName, "Title" ) ), , , 0, , "RAISED" )
 
-   // Text indicators
+   // Define text panels for CapsLock, NumLock, and ScrollLock indicators
    _DefineItemMessage ( ITEMNAME, BarName, 0, 0, "CAP", , iif( _HMG_IsThemed, KBD_CAPS_WIDTH, KBD_CAPS_WIDTH - 2 ), 0, , , , , , SILVER )
 
    _DefineItemMessage ( ITEMNAME, BarName, 0, 0, "NUM", , KBD_NUMLOCK_WIDTH, 0, , , , , , SILVER )
 
    _DefineItemMessage ( ITEMNAME, BarName, 0, 0, "SCRL", , KBD_SCROLL_WIDTH, 0, , , , , , SILVER )
 
-   // Update colors every 250ms based on key state
+   // Define timer to poll key states every 250ms and set text color (Black = active, Silver = inactive)
    _DefineTimer ( "StatusBarKbd", FormName, 250, ;
       {|| ;
          _SetStatusItemProperty( 2, iif( IsCapsLockActive(), BLACK, SILVER ), hWnd, STATUS_ITEM_FONTCOLOR ), ;
@@ -721,15 +869,30 @@ FUNCTION _SetStatusBarKbd ( BarName, FormName )
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _GetStatusItemWidth
+ *
+ * Purpose:
+ *    Retrieves the width of a specific status bar item panel or an array of
+ *    all panel widths for a parent window.
+ *
+ * Parameters:
+ *    hWnd  : Numeric - Win32 handle of the parent form.
+ *    nItem : Numeric - 1-based item panel index. Returns array of widths if NIL.
+ *
+ * Return:
+ *    Numeric | Array - Width in pixels of requested panel or array of all widths.
+ *
+ * Side Effects:
+ *    None
+ */
 FUNCTION _GetStatusItemWidth( hWnd, nItem )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Retrieves the width of a specific status bar panel or all panels.
- */
    LOCAL h
    LOCAL aItemWidth := {}
    LOCAL i
 
+   // Iterate parent handle registrations to accumulate item panel widths
    FOR EACH h IN _HMG_aControlParentHandles
 
       i := hb_enumindex( h )
@@ -743,18 +906,34 @@ FUNCTION _GetStatusItemWidth( hWnd, nItem )
 RETURN iif( nItem == NIL, aItemWidth, aItemWidth[ hb_defaultValue( nItem, 1 ) ] )
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _SetStatusItemProperty
+ *
+ * Purpose:
+ *    Modifies a property (width, action, background color, text color, or alignment)
+ *    for a specified status bar item panel and updates the display.
+ *
+ * Parameters:
+ *    nItem : Numeric - 1-based index of the status bar item panel.
+ *    Value : Mixed   - New property value to apply.
+ *    hWnd  : Numeric - Win32 handle of the parent form.
+ *    nType : Numeric - Property selector constant (e.g. STATUS_ITEM_WIDTH, STATUS_ITEM_FONTCOLOR).
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Updates HMG internal control property tracking arrays.
+ *    - Triggers redraw of status bar item when visual properties are modified.
+ */
 FUNCTION _SetStatusItemProperty( nItem, Value, hWnd, nType )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Updates specific properties (Width, Action, Colors, Alignment) of a status bar panel.
- * Reasoning: Since status bar items aren't full Win32 controls, HMG manages their 
- * properties via this dispatcher which updates internal arrays and triggers refreshes.
- */
    LOCAL h
    LOCAL FormName
    LOCAL nIndex := 0
    LOCAL i
 
+   // Scan parent handle array for matching status bar item panel
    FOR EACH h IN _HMG_aControlParentHandles
 
       i := hb_enumindex( h )
@@ -780,7 +959,7 @@ FUNCTION _SetStatusItemProperty( nItem, Value, hWnd, nType )
                _HMG_aControlSpacing[ i ] := Value
             ENDSWITCH
 
-            // If visual properties changed, force a redraw of the item
+            // Redraw status panel if visual/color properties changed
             IF nType > STATUS_ITEM_ACTION
                FormName := GetParentFormName( i )
                _SetItem ( "StatusBar", FormName, nItem, _GetItem ( "StatusBar", FormName, nItem ) )
@@ -797,15 +976,32 @@ FUNCTION _SetStatusItemProperty( nItem, Value, hWnd, nType )
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _SetStatusProgressMessage
+ *
+ * Purpose:
+ *    Creates and embeds a progress bar control within a status bar panel.
+ *
+ * Parameters:
+ *    BarName  : Character - Name of the target status bar control.
+ *    FormName : Character - Name of the parent window.
+ *    width    : Numeric   - Width of the progress bar panel in pixels.
+ *    tooltip  : Character - Tooltip text for the progress control.
+ *    action   : Character/Block - Event procedure or block executed on click.
+ *    nValue   : Numeric   - Initial progress position value.
+ *    nMin     : Numeric   - Minimum range limit.
+ *    nMax     : Numeric   - Maximum range limit.
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Defines status panel "ProgressMessage".
+ *    - Instantiates native Win32 ProgressBar control hosted inside status bar.
+ *    - Stores status bar and progress handles in `_HMG_aControlMiscData1`.
+ */
 FUNCTION _SetStatusProgressMessage ( BarName, FormName, width, tooltip, action, nValue, nMin, nMax )
 *-----------------------------------------------------------------------------*
-/*
- * Purpose: Embeds a Progress Bar control into a status bar panel.
- * Logic: 
- *    1. Creates a placeholder status item.
- *    2. Creates a Win32 ProgressBar as a child of the status bar.
- *    3. Positions the progress bar over the status item's coordinates.
- */
    LOCAL hwndStatus, hwndProgress
    LOCAL nrItem
    LOCAL i
@@ -817,6 +1013,7 @@ FUNCTION _SetStatusProgressMessage ( BarName, FormName, width, tooltip, action, 
    __defaultNIL( @ToolTip, "" )
    __defaultNIL( @Action, "" )
 
+   // Get status bar window handle based on active window definition context
    IF _HMG_BeginWindowActive
       hwndStatus := GetControlHandle ( BarName, FormName )
 #ifdef _HMG_COMPAT_
@@ -826,11 +1023,14 @@ FUNCTION _SetStatusProgressMessage ( BarName, FormName, width, tooltip, action, 
 #endif
    ENDIF
 
+   // Define placeholder panel inside status bar for hosting progress bar
    nrItem := _DefineItemMessage ( PROGRESSNAME, BarName, 0, 0, '', action, width, 0, , "", ToolTip )
 
+   // Create native Win32 ProgressBar control embedded in status item
    hwndProgress := CreateProgressBarItem ( hwndStatus, nrItem, nValue, nMin, nMax )
    i := GetControlIndex ( PROGRESSNAME, FormName )
 
+   // Save parent status bar handle and child progress bar handle in control tracking
    _HMG_aControlMiscData1[ i ] := { hwndStatus, hwndProgress }
    _HMG_aControlRangeMin[ i ] := nMin
    _HMG_aControlRangeMax[ i ] := nMax
@@ -839,10 +1039,27 @@ FUNCTION _SetStatusProgressMessage ( BarName, FormName, width, tooltip, action, 
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _SetStatusProgressPos
+ *
+ * Purpose:
+ *    Updates the current position of an embedded status bar progress control.
+ *
+ * Parameters:
+ *    FormName : Character - Name of the parent window.
+ *    nValue   : Numeric   - New progress position value.
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Sends Win32 progress bar positioning message (`PBM_SETPOS`) to update visual indicator.
+ */
 FUNCTION _SetStatusProgressPos ( FormName, nValue )
 *-----------------------------------------------------------------------------*
    LOCAL i
 
+   // Locate embedded progress bar control entry and update position
    IF ( i := GetControlIndex ( PROGRESSNAME, FormName ) ) > 0
       SetPosProgressBarItem ( _HMG_aControlMiscData1[ i, 2 ], hb_defaultValue( nValue, 0 ) )
    ENDIF
@@ -850,10 +1067,28 @@ FUNCTION _SetStatusProgressPos ( FormName, nValue )
 RETURN NIL
 
 *-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _SetStatusProgressRange
+ *
+ * Purpose:
+ *    Configures the minimum and maximum range bounds of an embedded status bar progress control.
+ *
+ * Parameters:
+ *    FormName : Character - Name of the parent window.
+ *    nMin     : Numeric   - Minimum range value.
+ *    nMax     : Numeric   - Maximum range value.
+ *
+ * Return:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Updates range limits on the native Win32 progress bar control.
+ */
 FUNCTION _SetStatusProgressRange ( FormName, nMin, nMax )
 *-----------------------------------------------------------------------------*
    LOCAL i
 
+   // Locate embedded progress bar control entry and update range boundaries
    IF ( i := GetControlIndex ( PROGRESSNAME, FormName ) ) > 0
       SetProgressBarRange ( _HMG_aControlMiscData1[ i, 2 ], hb_defaultValue( nMin, 0 ), hb_defaultValue( nMax, 100 ) )
    ENDIF

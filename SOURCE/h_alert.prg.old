@@ -42,8 +42,8 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
    "HWGUI"
    Copyright 2001-2021 Alexander S.Kresin <alex@kresin.ru>
-
  ---------------------------------------------------------------------------*/
+
 #ifdef __XHARBOUR__
   #define __MINIPRINT__
 #else
@@ -54,67 +54,75 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 #include "i_winuser.ch"
 
 /*
-   Author    : Francisco Garcia Fernandez
+   Author : Francisco Garcia Fernandez
    Objective : Simulate Clipper ALERT function
 
-   Syntax    : HMG_Alert( cText, [<aOptions>], [<cTitle>], [<nType>], [<cIcoName>], [<nIcoSize>], [<aBtnColors>], [<bInit>], [<lClosable>], [<cFontName>] )
+   Syntax : HMG_Alert( cText, [<aOptions>], [<cTitle>], [<nType>], [<cIcoName>], [<nIcoSize>], [<aBtnColors>], [<bInit>], [<lClosable>], [<cFontName>] )
 
-   Last Modified by Grigory Filatov at 12-10-2025
+   Last Modified by Grigory Filatov at 15-08-2026
 */
 
-#define MARGIN          32
-#define MARGIN_ICON     70
-#define VMARGIN_BUTTON  4
-#define HMARGIN_BUTTON  22
-#define SEP_BUTTON      10
-#define TAB             Chr( 9 )
+#define MARGIN 32
+#define MARGIN_ICON 70
+#define VMARGIN_BUTTON 4
+#define HMARGIN_BUTTON 22
+#define SEP_BUTTON 10
+#define TAB Chr( 9 )
 
-#define aBackColor      s_Config [1]
-#define aFontColor      s_Config [2]
-#define cLineSeparator  s_Config [3]
-#define nMaxLineLen     s_Config [4]
-#define cFontNameAlert  s_Config [5]
+#define aBackColor     s_Config [1]
+#define aFontColor     s_Config [2]
+#define cLineSeparator s_Config [3]
+#define nMaxLineLen    s_Config [4]
+#define cFontNameAlert s_Config [5]
 
 STATIC s_Config := { NIL, NIL, ";|", 79, "DlgFont" }
 
-/*-----------------------------------------------------------------------------*
-FUNCTION HMG_Alert( cMsg, aOptions, cTitle, nType, cIcoFile, nIcoSize, aBtnColors, bInit, lClosable, cFontName )
-*------------------------------------------------------------------------------*
-*
-*  Description:
-*     Displays a modal alert dialog box with a message, options, title, icon, and customizable features.
-*     This function provides a way to present information to the user and receive a response through button clicks.
-*     It simulates the functionality of the Clipper ALERT function within the HMG Extended environment.
-*
-*  Parameters:
-*     cMsg      - The message to display in the alert dialog.  Multiple lines can be separated by a delimiter character (defined by cLineSeparator).  Data Type: CHARACTER.
-*     aOptions  - An array of strings representing the button captions.  If a numeric value is passed instead of an array, it's interpreted as the number of seconds to wait before automatically closing the dialog (only if no button is pressed). Data Type: ARRAY or NUMERIC (optional).
-*     cTitle    - The title of the alert dialog window.  If NIL, defaults to a predefined message ( _HMG_MESSAGE [10] ). Data Type: CHARACTER (optional).
-*     nType     - An integer representing the type of system icon to display (1=Warning, 2=Question, 3=Information, 4=Error).  If aOptions has only one element, nType defaults to 1; if aOptions has two or more elements, nType defaults to 2. Data Type: NUMERIC (optional).
-*     cIcoFile  - The file name of a custom icon to display.  If NIL, defaults to a system icon based on nType.  Can also be a system icon constant (SYSICO_WARN, SYSICO_QUES, SYSICO_INFO, SYSICO_ERROR). Data Type: CHARACTER or NUMERIC (optional).
-*     nIcoSize  - The size of the icon to display (32, 48, or 64 pixels).  Defaults to 32 if NIL. Data Type: NUMERIC (optional).
-*     aBtnColors- An array of RGB color arrays (e.g., { {255,0,0}, {0,255,0} }) to customize the background color of each button.  The array length must match the number of buttons defined in aOptions. Data Type: ARRAY (optional).
-*     bInit     - A code block to execute after the dialog is defined but before it's activated.  This allows for further customization of the dialog's appearance or behavior. Data Type: BLOCK (optional).
-*     lClosable - A logical value indicating whether the dialog can be closed by clicking the close button (X) on the title bar.  Defaults to .F. (false) if NIL. Data Type: LOGICAL (optional).
-*     cFontName - The name of the font to use for the dialog's text and button captions.  Defaults to cFontNameAlert (defined globally). Data Type: CHARACTER (optional).
-*
-*  Return Value:
-*     The Cargo property of the button that was clicked. If the dialog is closed via the close button (X) or Escape key, the return value is 0. Data Type: USUAL.
-*     The function also sets the global variable _HMG_ModalDialogReturn to the Cargo property of the button clicked.
-*
-*  Purpose:
-*     This function provides a standardized way to display alert messages to the user within an HMG Extended application.
-*     It encapsulates the creation and management of a modal dialog window, including the message text, button options, icon, and other visual elements.
-*     It simplifies the process of presenting information and receiving user input through button clicks, making it easier to create consistent and user-friendly interfaces.
-*
-*  Notes:
-*     - The function relies on several global variables (e.g., s_Config, _HMG_ModalDialogReturn, _HMG_IsModalActive) for configuration and state management.
-*     - The appearance of the dialog is influenced by system settings (e.g., colors, fonts).
-*     - The function attempts to handle different screen resolutions and font sizes to ensure proper display.
-*     - The use of _SetGetGlobal is crucial for managing global state within the HMG environment.
-*     - The function uses hb_FNameSplit to check if a window with the same name already exists.
-*     - The function uses a timer to automatically close the dialog if a numeric value is passed as aOptions.
-*/
+/*
+ * Routine: HMG_Alert()
+ *
+ * Purpose:
+ * Displays a modal alert dialog that simulates the Clipper ALERT function.
+ * Renders a multi-line message, optional system or custom icon, and a set of
+ * response buttons. Supports timeout-based auto-close when aOptions is numeric,
+ * custom button colors via BUTTONEX, an optional init codeblock, and control
+ * over the window close box / Escape key.
+ *
+ * Parameters:
+ * cMsg - Character/USUAL - Message text. Converted via cValToChar(); lines may be
+ *          delimited by the configured cLineSeparator (or TAB expanded to spaces).
+ * aOptions - Array/Numeric - Array of button captions (default {"&OK"}). If numeric,
+ *          treated as timeout seconds; a single OK button is shown and a timer
+ *          closes the dialog automatically.
+ * cTitle - Character - Window title (default _HMG_MESSAGE[10]).
+ * nType - Numeric - System icon selector 1..4 (Warning/Question/Information/Error).
+ *          Defaults to 1 when one button, 2 when two or more buttons.
+ * cIcoFile - Character/Numeric - Custom icon file name, HICON handle, or SYSICO_*
+ *          constant. Defaults to the system icon corresponding to nType.
+ * nIcoSize - Numeric - Icon size in pixels (typically 32/48/64). Default 32.
+ * aBtnColors - Array - Optional array of RGB color arrays, one per button; enables
+ *          BUTTONEX with custom BACKCOLOR and NOXPSTYLE.
+ * bInit - Block - Optional codeblock executed after the window is defined but before
+ *          activation (via Do_WindowEventProcedure with 'WINDOW_INIT').
+ * lClosable - Logical - When .T., the title-bar close box and Escape key are enabled
+ *          and return 0. Default .F. (forced .T. when aOptions is empty/numeric).
+ * cFontName - Character - Font name for labels and buttons (default cFontNameAlert).
+ *          A temporary font is created from the system default if the named font
+ *          does not yet exist.
+ *
+ * Returns:
+ * Numeric - The Cargo value of the button that was pressed (1-based index stored
+ *           in the button's Cargo). Returns 0 when the dialog is closed via the
+ *           close box, Escape, or timeout without a button press. The same value
+ *           is stored in the global _HMG_ModalDialogReturn.
+ *
+ * Side Effects:
+ * Creates and activates a uniquely named modal window ("oDlg" or "oDlgN").
+ * May define a temporary font and a one-shot timer.
+ * Sets/clears the globals _HMG_PressButton and _HMG_ModalDialogReturn.
+ * Draws an icon (DRAW ICON / DRAW SYSICON) and creates LABEL/EDITBOX plus
+ * BUTTON or BUTTONEX controls. Releases the temporary font on exit when created.
+ * Centres the dialog and optionally installs an ON KEY ESCAPE handler.
+ */
 FUNCTION HMG_Alert( cMsg, aOptions, cTitle, nType, cIcoFile, nIcoSize, aBtnColors, bInit, lClosable, cFontName )
    LOCAL nLineas
    LOCAL aIcon := { SYSICO_WARN, SYSICO_QUES, SYSICO_INFO, SYSICO_ERROR }
@@ -123,13 +131,15 @@ FUNCTION HMG_Alert( cMsg, aOptions, cTitle, nType, cIcoFile, nIcoSize, aBtnColor
    LOCAL cDelim, cOldDelim
    LOCAL cForm := "oDlg"
    LOCAL nMaxLen := 0
-   LOCAL hPrevious
+   LOCAL lOMHbak := _HMG_OwnerModalHandle
 
    IF _SetGetGlobal( "_HMG_IsWin10" ) == NIL
       STATIC _HMG_IsWin10 AS GLOBAL VALUE IsWin10OrLater()
    ENDIF
 
    STATIC _HMG_PressButton AS GLOBAL VALUE .F.
+
+   _HMG_OwnerModalHandle := .T.
 
    IF _IsWindowDefined( cForm )
       nLineas := 0
@@ -203,8 +213,6 @@ FUNCTION HMG_Alert( cMsg, aOptions, cTitle, nType, cIcoFile, nIcoSize, aBtnColor
       hb_default( @_HMG_ModalDialogReturn, 0 )
    ENDIF
 
-   hPrevious := iif( _HMG_BeginWindowMDIActive, GetActiveMdiHandle(), GetActiveWindow() )
-
    DEFINE WINDOW ( cForm ) ;
       WIDTH 0 HEIGHT 0 ;
       TITLE cTitle ;
@@ -224,39 +232,31 @@ FUNCTION HMG_Alert( cMsg, aOptions, cTitle, nType, cIcoFile, nIcoSize, aBtnColor
       RELEASE FONT ( cFontName )
    ENDIF
 
-   IF hPrevious != NIL
-      IF _HMG_IsModalActive
-         EnableWindow( hPrevious )
-      ENDIF
-      SetFocus( hPrevious )
-   ENDIF
+   _HMG_OwnerModalHandle := lOMHbak
 
 RETURN _HMG_ModalDialogReturn
 
-/*-----------------------------------------------------------------------------*
-FUNCTION HMG_Alert_MaxLines( nLines, nWide )
-*------------------------------------------------------------------------------*
-*
-*  Description:
-*     Sets or retrieves the maximum number of lines to display in the alert dialog and the maximum line length.
-*     This function allows controlling the size and formatting of the alert message.
-*
-*  Parameters:
-*     nLines - The maximum number of lines to display in the alert dialog. If NIL, the function returns the current value. Data Type: NUMERIC (optional).
-*     nWide  - The maximum length of each line in the alert dialog. If NIL, the function only affects the maximum number of lines. Data Type: NUMERIC (optional).
-*
-*  Return Value:
-*     The previous value of the maximum number of lines. Data Type: NUMERIC.
-*
-*  Purpose:
-*     This function provides a way to limit the amount of text displayed in the alert dialog, preventing it from becoming too large or unwieldy.
-*     It's useful for ensuring that the dialog fits within the screen boundaries and remains readable.
-*     It also allows setting the maximum line length to prevent lines from wrapping awkwardly.
-*
-*  Notes:
-*     - The function uses global variables to store the maximum number of lines and the maximum line length.
-*     - The maximum line length is limited to 255 characters.
-*/
+/*
+ * Routine: HMG_Alert_MaxLines()
+ *
+ * Purpose:
+ * Sets or retrieves the maximum number of message lines that will be displayed
+ * before the dialog switches from individual LABELs to a single READONLY EDITBOX.
+ * Optionally also sets the maximum line length used by MemoLine().
+ *
+ * Parameters:
+ * nLines - Numeric - New maximum line count (must be > 0). When omitted the
+ *          current value is left unchanged.
+ * nWide - Numeric - New maximum line length for MemoLine() (must be > 0 and < 255).
+ *         When omitted the current nMaxLineLen is left unchanged.
+ *
+ * Returns:
+ * Numeric - The previous maximum-line value that was stored in the global.
+ *
+ * Side Effects:
+ * Updates the global named "_" + ProcName() via _AddNewGlobal / _SetGetGlobal.
+ * May assign the module-level nMaxLineLen (via the #define alias).
+ */
 FUNCTION HMG_Alert_MaxLines( nLines, nWide )
    LOCAL cVarName := "_" + ProcName()
    LOCAL nOldLines := _AddNewGlobal( cVarName, 28 )
@@ -271,28 +271,23 @@ FUNCTION HMG_Alert_MaxLines( nLines, nWide )
 
 RETURN nOldLines
 
-/*-----------------------------------------------------------------------------*
-FUNCTION HMG_Alert_RowStart( nRow )
-*------------------------------------------------------------------------------*
-*
-*  Description:
-*     Sets or retrieves the starting row position for the content within the alert dialog.
-*     This function allows fine-tuning the vertical placement of the message and other elements.
-*
-*  Parameters:
-*     nRow - The starting row position for the content. If NIL, the function returns the current value. Data Type: NUMERIC (optional).
-*
-*  Return Value:
-*     The previous value of the starting row position. Data Type: NUMERIC.
-*
-*  Purpose:
-*     This function provides a way to adjust the vertical alignment of the content within the alert dialog.
-*     It's useful for creating a more visually appealing and balanced layout.
-*
-*  Notes:
-*     - The function uses a global variable to store the starting row position.
-*     - The row position must be a non-negative number.
-*/
+/*
+ * Routine: HMG_Alert_RowStart()
+ *
+ * Purpose:
+ * Sets or retrieves the vertical starting offset (in character-height units)
+ * used for the first label / editbox inside the alert dialog.
+ *
+ * Parameters:
+ * nRow - Numeric - New starting row (>= 0). When omitted the current value is
+ *        left unchanged.
+ *
+ * Returns:
+ * Numeric - The previous starting-row value stored in the global.
+ *
+ * Side Effects:
+ * Updates the global named "_" + ProcName() via _AddNewGlobal / _SetGetGlobal.
+ */
 FUNCTION HMG_Alert_RowStart( nRow )
    LOCAL cVarName := "_" + ProcName()
    LOCAL nOldRow := _AddNewGlobal( cVarName, 0 )
@@ -303,26 +298,23 @@ FUNCTION HMG_Alert_RowStart( nRow )
 
 RETURN nOldRow
 
-/*-----------------------------------------------------------------------------*
-FUNCTION HMG_Alert_FontName( cFontName )
-*------------------------------------------------------------------------------*
-*
-*  Description:
-*     Sets or retrieves the font name used for the alert dialog's text.
-*     This function allows customizing the font to match the application's overall style.
-*
-*  Parameters:
-*     cFontName - The name of the font to use. If NIL, the function returns the current value. Data Type: CHARACTER (optional).
-*
-*  Return Value:
-*     The previous value of the font name. Data Type: CHARACTER.
-*
-*  Purpose:
-*     This function provides a way to change the font used in the alert dialog, allowing for visual consistency with the rest of the application.
-*
-*  Notes:
-*     - The function uses a global variable (cFontNameAlert) to store the font name.
-*/
+/*
+ * Routine: HMG_Alert_FontName()
+ *
+ * Purpose:
+ * Sets or retrieves the default font name used by subsequent HMG_Alert() calls
+ * when the caller does not supply an explicit cFontName argument.
+ *
+ * Parameters:
+ * cFontName - Character - New font name. When omitted the current value is left
+ *             unchanged.
+ *
+ * Returns:
+ * Character - The previous font name that was stored in cFontNameAlert.
+ *
+ * Side Effects:
+ * Assigns the module-level cFontNameAlert (via the #define alias of s_Config[5]).
+ */
 FUNCTION HMG_Alert_FontName( cFontName )
    LOCAL cOldFont := cFontNameAlert
 
@@ -332,26 +324,23 @@ FUNCTION HMG_Alert_FontName( cFontName )
 
 RETURN cOldFont
 
-/*-----------------------------------------------------------------------------*
-FUNCTION HMG_Alert_Separator( cSeparator )
-*------------------------------------------------------------------------------*
-*
-*  Description:
-*     Sets or retrieves the line separator character used to split the alert message into multiple lines.
-*     This function allows customizing the delimiter used to separate lines in the message text.
-*
-*  Parameters:
-*     cSeparator - The line separator character. If NIL, the function returns the current value. Data Type: CHARACTER (optional).
-*
-*  Return Value:
-*     The previous value of the line separator character. Data Type: CHARACTER.
-*
-*  Purpose:
-*     This function provides a way to customize the character used to separate lines in the alert message, allowing for flexibility in formatting the message text.
-*
-*  Notes:
-*     - The function uses a global variable (cLineSeparator) to store the line separator character.
-*/
+/*
+ * Routine: HMG_Alert_Separator()
+ *
+ * Purpose:
+ * Sets or retrieves the character sequence used to split the alert message into
+ * multiple lines when the _SET_DELIMITERS flag is active.
+ *
+ * Parameters:
+ * cSeparator - Character - New separator string. When omitted the current value
+ *              is left unchanged.
+ *
+ * Returns:
+ * Character - The previous separator that was stored in cLineSeparator.
+ *
+ * Side Effects:
+ * Assigns the module-level cLineSeparator (via the #define alias of s_Config[3]).
+ */
 FUNCTION HMG_Alert_Separator( cSeparator )
    LOCAL cOldSep := cLineSeparator
 
@@ -361,44 +350,42 @@ FUNCTION HMG_Alert_Separator( cSeparator )
 
 RETURN cOldSep
 
-/*-----------------------------------------------------------------------------*
-STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors, bBlock, lClosable, cFont, nMaxLen )
-*------------------------------------------------------------------------------*
-*
-*  Description:
-*     Fills the alert dialog window with the message, options, icon, and other visual elements.
-*     This function is responsible for creating and positioning the controls within the dialog.
-*
-*  Parameters:
-*     cMsg      - The message to display in the alert dialog. Data Type: CHARACTER.
-*     aOptions  - An array of strings representing the button captions. Data Type: ARRAY or NUMERIC.
-*     nLineas   - The number of lines in the message. Data Type: NUMERIC.
-*     cIcoFile  - The file name of a custom icon to display. Data Type: CHARACTER or NUMERIC.
-*     nIcoSize  - The size of the icon to display. Data Type: NUMERIC.
-*     aBtnColors- An array of RGB color arrays to customize the background color of each button. Data Type: ARRAY (optional).
-*     bBlock    - A code block to execute after the dialog is defined but before it's activated. Data Type: BLOCK (optional).
-*     lClosable - A logical value indicating whether the dialog can be closed by clicking the close button. Data Type: LOGICAL.
-*     cFont     - The name of the font to use for the dialog's text and button captions. Data Type: CHARACTER.
-*     nMaxLen   - The maximum length of a line in the message. Data Type: NUMERIC.
-*
-*  Return Value:
-*     NIL.
-*
-*  Purpose:
-*     This function is the core of the HMG_Alert function, responsible for creating and arranging the GUI elements within the alert dialog.
-*     It calculates the dimensions of the dialog based on the message length, button captions, and icon size.
-*     It creates the necessary controls (labels, buttons, icons) and positions them appropriately within the dialog window.
-*     It also handles the customization of button colors and the execution of the initialization block.
-*
-*  Notes:
-*     - The function relies heavily on calculations to determine the optimal size and layout of the dialog.
-*     - It uses system metrics (e.g., border width, title height) to ensure proper alignment and spacing.
-*     - The function handles different icon sizes and button color customizations.
-*     - The use of BUTTONEX allows for extended button customization (e.g., XP styles).
-*     - The function uses a code block (bBlock) to allow for further customization of the dialog.
-*     - The function uses _SetGetGlobal to access and modify global variables.
-*     - The function uses _IsControlDefined to check if a timer control is defined.
-*/
+/*
+ * Routine: FillDlg()
+ *
+ * Purpose:
+ * Populates an already-defined HMG_Alert modal window with the message text,
+ * optional icon, and response buttons. Calculates dialog and control metrics
+ * from font measurements, desktop size and the supplied parameters, then creates
+ * the necessary LABEL/EDITBOX, BUTTON/BUTTONEX and (when required) TIMER controls.
+ *
+ * Parameters:
+ * cMsg - Character - Fully prepared multi-line message text.
+ * aOptions - Array/Numeric - Button captions or timeout seconds (already normalised
+ *            by the caller when numeric).
+ * nLineas - Numeric - Number of lines present in cMsg (from MLCount).
+ * cIcoFile - Character/Numeric - Icon source (file, HICON or SYSICO_* constant).
+ * nIcoSize - Numeric - Requested icon size in pixels; 0 suppresses the icon.
+ * aBtnColors - Array - Optional per-button RGB color arrays; presence enables
+ *              BUTTONEX with custom colours.
+ * bBlock - Block - Optional WINDOW_INIT codeblock to execute after controls are
+ *          created.
+ * lClosable - Logical - Controls whether Escape is bound and whether the window
+ *             may be closed without a button press.
+ * cFont - Character - Font name already resolved by the caller.
+ * nMaxLen - Numeric - Longest trimmed line length (used for width calculations).
+ *
+ * Returns:
+ * NIL
+ *
+ * Side Effects:
+ * Creates LABEL or EDITBOX controls for the message, BUTTON or BUTTONEX controls
+ * for each option, and optionally a TIMER. Draws an icon via DRAW ICON / DRAW
+ * SYSICON. Sets This.Width / This.Height / This.Closable, centres the window,
+ * sets initial focus, and may install an ON KEY ESCAPE handler. When a timeout
+ * was requested the timer is enabled just before return. Stores control type
+ * information in This.Cargo when compiled with _OBJECT_.
+ */
 STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors, bBlock, lClosable, cFont, nMaxLen )
    LOCAL hWnd
    LOCAL hDC
@@ -457,11 +444,9 @@ STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors
    IF ( lExt := ( ISARRAY( aBtnColors ) .AND. Len( aBtnColors ) == nLenaOp ) )
       nVMARGIN_BUTTON := 3 * VMARGIN_BUTTON
    ENDIF
-
    hDlgFont := GetFontHandle( cFont )
 
-   // calculate the column of the text output
-
+   // Column offset for the message area; leave space for the icon when present.
    IF nIcoSize > 0
       nCol := MARGIN_ICON + iif( nIcoSize == 32, 0, MARGIN_ICON / iif( nIcoSize == 64, 2.8, 3.2 ) )
    ENDIF
@@ -469,12 +454,10 @@ STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors
    hWnd := This.Handle
    hDC := GetDC( hWnd )
 
-   // calculate the character height for the dialog font
-
+   // Character height of the dialog font (includes vertical button margin).
    nChrHeight := GetTextHeight( hDC, aOptions[ 1 ], hDlgFont ) + nVMARGIN_BUTTON / 2
 
-   // calculate the maximum width of the lines
-
+   // Nominal maximum text width derived from the longest line length.
    nMaxWidth := GetFontWidth( cFont, nMaxLen )
    IF GetTextWidth( hDC, Space( 10 ), hDlgFont ) != GetTextWidth( hDC, Replicate( "B", 10 ), hDlgFont )
       nMaxWidth *= 0.7
@@ -484,8 +467,7 @@ STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors
       nMaxLin := Max( nMaxLin, GetTextWidth( hDC, AllTrim( MemoLine( cMsg, nMaxLineLen, n ) ), hDlgFont ) )
    NEXT
 
-   // calculate the maximum width of the buttons
-
+   // Widest button caption determines individual button width.
    FOR n := 1 TO nLenaOp
       nMaxBoton := Max( nMaxBoton, GetTextWidth( hDC, aOptions[ n ], hDlgFont ) )
    NEXT
@@ -494,14 +476,12 @@ STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors
 
    nMaxBoton += ( HMARGIN_BUTTON * iif( ! lExt .AND. lIsWin10 .AND. nLenAop > 2, 1.1, iif( nLenAop > 1, 2, 3 ) ) )
 
-   // calculate the width of the options + their separations
-
+   // Total width occupied by all buttons plus inter-button gaps.
    nLenBotones := ( nMaxBoton + SEP_BUTTON ) * nLenaOp
 
    nHeightBtn := nVMARGIN_BUTTON + nChrHeight + nVMARGIN_BUTTON
 
-   // calculate the width of the client area
-
+   // Client width is the larger of the text block or the button row.
    IF nMaxWidth > nMaxLin
       nMaxLin := nMaxWidth
    ENDIF
@@ -529,7 +509,7 @@ STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors
       WHILE ( nHeightDlg - ( nChrHeight * ( ++n ) ) ) > GetDesktopRealHeight()
       END
       nMaxHeight := nChrHeight * n
-      nMaxLines  -= n
+      nMaxLines -= n
       nHeightDlg -= nMaxHeight
       nHeightCli -= nMaxHeight
    ENDIF
@@ -587,7 +567,7 @@ STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors
    IF nIcoSize > 0
 
 #ifdef _OBJECT_
-      nY   := nRow + GetBorderHeight()
+      nY := nRow + GetBorderHeight()
       cIco := "ICON"
 #endif
       IF ISNUMBER( cIcoFile )
@@ -682,33 +662,26 @@ STATIC FUNCTION FillDlg( cMsg, aOptions, nLineas, cIcoFile, nIcoSize, aBtnColors
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------*
-FUNCTION _SetMsgAlertColors( aBackClr, aFontClr )
-*------------------------------------------------------------------------------*
-*  Description:
-*     Sets the background and font colors for message alerts.
-*
-*  Parameters:
-*     aBackClr - An array representing the new background color. If NIL, the background color is not changed.
-*     aFontClr - An array representing the new font color. If NIL, the font color is not changed.
-*
-*  Return Value:
-*     An array containing the old background and font colors: { aBackColor, aFontColor }.
-*
-*  Purpose:
-*     This function allows the user to customize the colors used in message alerts.
-*     It stores the previous colors and updates the global variables aBackColor and aFontColor with the new values if provided.
-*     This is useful for providing visual consistency or highlighting alerts based on their severity or context.
-*
-*  HMG Extended Features Used:
-*     Uses global variables aBackColor and aFontColor, which are likely used by other alert-related functions within the HMG Extended framework.
-*
-*  Side Effects:
-*     Modifies the global variables aBackColor and aFontColor if the corresponding input parameters are not NIL.
-*
-*  Notes:
-*     The format of the color arrays (aBackClr and aFontClr) is assumed to be compatible with HMG Extended's color representation (e.g., RGB values).
-*/
+/*
+ * Routine: _SetMsgAlertColors()
+ *
+ * Purpose:
+ * Sets the default background and/or font colours used by subsequent HMG_Alert()
+ * dialogs. Colours are stored in the module-level s_Config array.
+ *
+ * Parameters:
+ * aBackClr - Array - New background colour (RGB array). When NIL the existing
+ *            background colour is left unchanged.
+ * aFontClr - Array - New font colour (RGB array). When NIL the existing font
+ *            colour is left unchanged.
+ *
+ * Returns:
+ * Array - Two-element array containing the previous background and font colours
+ *         { aBackColor, aFontColor }.
+ *
+ * Side Effects:
+ * Assigns aBackColor and/or aFontColor (aliases of s_Config[1] and s_Config[2]).
+ */
 FUNCTION _SetMsgAlertColors( aBackClr, aFontClr )
    LOCAL aOldClrs := { aBackColor, aFontColor }
 
@@ -723,46 +696,37 @@ FUNCTION _SetMsgAlertColors( aBackClr, aFontClr )
 RETURN aOldClrs
 
 #ifdef _HMG_COMPAT_
-
-/*-----------------------------------------------------------------------------*
-PROCEDURE HMG_CheckType( lSoft, ... )  (xHarbour version)
-OR
-PROCEDURE HMG_CheckType( ... ) (non-xHarbour version)
-*------------------------------------------------------------------------------*
-*  Description:
-*     Performs runtime type checking of function parameters.
-*
-*  Parameters:
-*     lSoft (xHarbour only) - A logical value indicating whether to perform "soft" type checking. If .T., NIL values are allowed even if a specific type is expected.
-*     ... - A variable number of parameters, each representing a type check specification. Each specification is an array with the following structure:
-*           { cTypeDef, cValType, cVarName }
-*           - cTypeDef: A string representing the expected data type (e.g., "ARRAY", "NUMERIC", "CHARACTER").
-*           - cValType: A single-character string representing the expected data type (e.g., "A", "N", "C").
-*           - cVarName: A string representing the name of the variable being checked.
-*
-*  Return Value:
-*     None.  This procedure does not return a value.
-*
-*  Purpose:
-*     This procedure is designed to enforce type safety in HMG Extended applications.
-*     It checks if the actual data type of each function parameter matches the expected data type specified in the type check specification.
-*     If a type mismatch is detected, an error message is displayed using MsgMiniGuiError.
-*     This helps to prevent runtime errors caused by incorrect data types being passed to functions.
-*
-*  Notes:
-*     The lSoft parameter is only used in xHarbour.  In non-xHarbour versions, it is omitted.
-*     The aType array defines the mapping between type names (e.g., "ARRAY") and type codes (e.g., "A").
-*     The __enumindex() method is used to get the index of the current element in the aParams array.
-*     The "USUAL" type allows any data type to be passed.
-*/
+/*
+ * Routine: HMG_CheckType()
+ *
+ * Purpose:
+ * Runtime type-checking helper used by the CHECK TYPE macro under _HMG_COMPAT_.
+ * Validates each supplied parameter specification against the actual ValType of
+ * the corresponding argument and raises MsgMiniGuiError on mismatch.
+ *
+ * Parameters:
+ * lSoft - Logical - (Harbour builds only) When .T., a NIL value ("U") is accepted
+ *         even when a concrete type was declared. In xHarbour builds the first
+ *         element of the vararg list is treated as this flag.
+ * ... - Variable - Zero or more three-element arrays of the form
+ *       { cTypeDef, cValType, cVarName } describing the expected type, the
+ *       observed ValType character, and the parameter name for the error message.
+ *
+ * Side Effects:
+ * May terminate the application via MsgMiniGuiError when a type mismatch is detected.
+ * In xHarbour builds the first element of the parameter array is removed after
+ * it has been interpreted as lSoft.
+ */
 #ifndef __XHARBOUR__
 PROCEDURE HMG_CheckType( lSoft, ... )
 #else
 PROCEDURE HMG_CheckType( ... )
 #endif
    LOCAL i, j
+
    // aData := { cTypeDef, cValType, cVarName }
    LOCAL aData
+
    // aType := { cTypeDef, cValType }
    LOCAL aType := { ;
       { "ARRAY", "A" }, ;
@@ -785,7 +749,7 @@ PROCEDURE HMG_CheckType( ... )
 
    lSoft := aParams[ 1 ]
 #endif
-   hb_ADel( aParams, 1, .T. )  // Remove lSoft parameter from the array
+   hb_ADel( aParams, 1, .T. ) // Remove lSoft parameter from the array
 
    FOR EACH aData IN aParams
 
@@ -814,49 +778,47 @@ RETURN
 #endif
 
 *=============================================================================*
-*                          Auxiliary Functions
+* Auxiliary Functions
 *=============================================================================*
 
-/*-----------------------------------------------------------------------------*
-FUNCTION GetDesktopRealWidth()
-*------------------------------------------------------------------------------*
-*  Description:
-*     Gets the width of the usable desktop area (excluding taskbar and other docked windows).
-*
-*  Parameters:
-*     None.
-*
-*  Return Value:
-*     A numeric value representing the width of the usable desktop area in pixels.
-*
-*  Purpose:
-*     This function is used to determine the available screen space for displaying windows and other GUI elements.
-*     It retrieves the desktop area using GetDesktopArea() and calculates the width by subtracting the left coordinate from the right coordinate.
-*     This is useful for positioning windows and controls within the visible screen area.
-*/
+/*
+ * Routine: GetDesktopRealWidth()
+ *
+ * Purpose:
+ * Returns the width of the usable desktop work area (screen area excluding the
+ * taskbar and other docked bars) in pixels.
+ *
+ * Parameters:
+ * (none)
+ *
+ * Returns:
+ * Numeric - Right edge minus left edge of the rectangle returned by GetDesktopArea().
+ *
+ * Side Effects:
+ * None.
+ */
 FUNCTION GetDesktopRealWidth()
 
    LOCAL a := GetDesktopArea()
 
 RETURN ( a[ 3 ] - a[ 1 ] )
 
-/*-----------------------------------------------------------------------------*
-FUNCTION GetDesktopRealHeight()
-*------------------------------------------------------------------------------*
-*  Description:
-*     Gets the height of the usable desktop area (excluding taskbar and other docked windows).
-*
-*  Parameters:
-*     None.
-*
-*  Return Value:
-*     A numeric value representing the height of the usable desktop area in pixels.
-*
-*  Purpose:
-*     This function is used to determine the available screen space for displaying windows and other GUI elements.
-*     It retrieves the desktop area using GetDesktopArea() and calculates the height by subtracting the top coordinate from the bottom coordinate.
-*     This is useful for positioning windows and controls within the visible screen area.
-*/
+/*
+ * Routine: GetDesktopRealHeight()
+ *
+ * Purpose:
+ * Returns the height of the usable desktop work area (screen area excluding the
+ * taskbar and other docked bars) in pixels.
+ *
+ * Parameters:
+ * (none)
+ *
+ * Returns:
+ * Numeric - Bottom edge minus top edge of the rectangle returned by GetDesktopArea().
+ *
+ * Side Effects:
+ * None.
+ */
 FUNCTION GetDesktopRealHeight()
 
    LOCAL a := GetDesktopArea()

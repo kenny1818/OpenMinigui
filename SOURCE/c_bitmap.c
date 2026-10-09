@@ -52,8 +52,7 @@
  + GetBitmapSize(), GetIconSize(), DrawGlyphMask()
    Copyright 2009 (C) Andi Jahja <harbour@cbn.net.id>
  + GetImageSize()
- ---------------------------------------------------------------------------*/
-
+---------------------------------------------------------------------------*/
 #include <mgdefs.h>
 #include "hbapiitm.h"
 #include "hbapifs.h"
@@ -429,7 +428,7 @@ WORD DibNumColors( VOID FAR *pv )
    {
       if( lpbi->biClrUsed != 0 )
       {
-         return ( WORD ) lpbi->biClrUsed;
+         return( WORD ) lpbi->biClrUsed;
       }
 
       bits = lpbi->biBitCount;
@@ -484,11 +483,11 @@ static WORD PaletteSize( VOID FAR *pv )
 
    if( lpbi->biSize == sizeof( BITMAPCOREHEADER ) )
    {
-      return ( WORD ) ( NumColors * sizeof( RGBTRIPLE ) );
+      return( WORD ) ( NumColors * sizeof( RGBTRIPLE ) );
    }
    else
    {
-      return ( WORD ) ( NumColors * sizeof( RGBQUAD ) );
+      return( WORD ) ( NumColors * sizeof( RGBQUAD ) );
    }
 }
 
@@ -552,7 +551,7 @@ HANDLE DibFromBitmap( HBITMAP hbm, HPALETTE hpal )
       hpal = ( HPALETTE ) GetStockObject( DEFAULT_PALETTE );
    }
 
-   GetObject( hbm, sizeof( bm ), ( LPSTR ) &bm );
+   GetObject( hbm, sizeof( bm ), ( LPSTR ) & bm );
 
    biBits = ( WORD ) ( bm.bmPlanes * bm.bmBitsPixel );
 
@@ -695,32 +694,52 @@ WORD GetDIBColors( LPSTR lpDIB )
  */
 HB_FUNC( C_HASALPHA )
 {
+   HBITMAP  hBitmap = hmg_par_raw_HBITMAP( 1 );
+   BOOL     bHasAlpha = FALSE;
+   HDC      hDC;
    HANDLE   hDib;
-   BOOL     bAlphaChannel = FALSE;
-   HDC      hDC = GetDC( GetDesktopWindow() );
 
-   if( GetDeviceCaps( hDC, BITSPIXEL ) < 32 )
+   /* Alpha channels require 32-bpp display */
+   hDC = GetDC( NULL );
+   if( hDC == NULL || GetDeviceCaps( hDC, BITSPIXEL ) < 32 )
    {
-      ReleaseDC( GetDesktopWindow(), hDC );
+      if( hDC )
+      {
+         ReleaseDC( NULL, hDC );
+      }
+
       hb_retl( FALSE );
       return;
    }
 
-   ReleaseDC( GetDesktopWindow(), hDC );
+   ReleaseDC( NULL, hDC );
 
-   hDib = DibFromBitmap( hmg_par_raw_HBITMAP( 1 ), ( HPALETTE ) NULL );
-
+   hDib = DibFromBitmap( hBitmap, NULL );
    if( hDib )
    {
-      LPBITMAPINFO   lpbmi = ( LPBITMAPINFO ) GlobalLock( hDib );
-      unsigned char  *uc = ( LPBYTE ) lpbmi + ( WORD ) lpbmi->bmiHeader.biSize + PaletteSize( lpbmi );
-      unsigned long  ul;
+      LPBITMAPINFOHEADER   pbih = ( LPBITMAPINFOHEADER ) GlobalLock( hDib );
 
-      for( ul = 0; ul < lpbmi->bmiHeader.biSizeImage && !bAlphaChannel; ul += 4 )
+      if( pbih && pbih->biBitCount == 32 )
       {
-         if( uc[ul + 3] != 0 )
+         BYTE  *pBits = ( BYTE * ) pbih + pbih->biSize + PaletteSize( ( LPBITMAPINFO ) pbih );
+         DWORD cbImage = pbih->biSizeImage;
+         DWORD i;
+
+         /* BI_RGB may leave biSizeImage == 0 - compute it ourselves */
+         if( cbImage == 0 )
          {
-            bAlphaChannel = TRUE;
+            LONG  stride = ( ( pbih->biWidth * 32 + 31 ) / 32 ) * 4;
+            cbImage = ( DWORD ) ( stride * labs( pbih->biHeight ) );
+         }
+
+         /* Look for any non-opaque pixel (alpha != 0xFF) */
+         for( i = 3; i < cbImage; i += 4 )
+         {
+            if( pBits[i] != 0xFF )
+            {
+               bHasAlpha = TRUE;
+               break;
+            }
          }
       }
 
@@ -728,7 +747,7 @@ HB_FUNC( C_HASALPHA )
       GlobalFree( hDib );
    }
 
-   hb_retl( bAlphaChannel );
+   hb_retl( bHasAlpha );
 }
 
 /*
@@ -759,7 +778,7 @@ HBITMAP Icon2Bmp( HICON hIcon )
    HBITMAP  hOldBmp;
 
    GetIconInfo( hIcon, &icon );
-   GetObject( icon.hbmColor, sizeof( BITMAP ), ( LPVOID ) &bitmap );
+   GetObject( icon.hbmColor, sizeof( BITMAP ), ( LPVOID ) & bitmap );
    hBmp = CreateCompatibleBitmap( hDC, bitmap.bmWidth, bitmap.bmHeight );
    hOldBmp = ( HBITMAP ) SelectObject( hMemDC, hBmp );
 
@@ -805,7 +824,7 @@ HBITMAP IconMask2Bmp( HICON hIcon )
    HBITMAP  hOldBmp;
 
    GetIconInfo( hIcon, &icon );
-   GetObject( icon.hbmColor, sizeof( BITMAP ), ( LPVOID ) &bitmap );
+   GetObject( icon.hbmColor, sizeof( BITMAP ), ( LPVOID ) & bitmap );
    hBmp = CreateCompatibleBitmap( hDC, bitmap.bmWidth, bitmap.bmHeight );
    hOldBmp = ( HBITMAP ) SelectObject( hMemDC, hBmp );
 
@@ -883,7 +902,7 @@ HB_FUNC( DRAWGLYPH )
    }
 
    // Check if the handle is a bitmap
-   if( ( UINT ) GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) &bitmap ) != sizeof( BITMAP ) )
+   if( ( UINT ) GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) & bitmap ) != sizeof( BITMAP ) )
    {
       // Check if it is an icon
       if( !GetIconInfo( ( HICON ) hBmp, &icon ) )
@@ -923,7 +942,7 @@ HB_FUNC( DRAWGLYPH )
          // Ignore the user-provided color
          rgbTransparent = RGB( 255, 255, 255 );
          bHasBkColor = TRUE;
-         GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) &bitmap );
+         GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) & bitmap );
       }
    }
 
@@ -1054,7 +1073,7 @@ HB_FUNC( DRAWGLYPHMASK )
 
    BITMAP   bitmap;
 
-   GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) &bitmap );
+   GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) & bitmap );
 
    SetBkColor( hDC, RGB( 255, 255, 255 ) );                       // White
    SetTextColor( hDC, RGB( 0, 0, 0 ) );                           // Black
@@ -1158,7 +1177,7 @@ VOID DrawGlyph( HDC hDC, int x, int y, int dx, int dy, HBITMAP hBmp, COLORREF rg
    BOOL     bHasBkColor = !HB_ISNIL( 7 );
 
    // Check if the handle is a bitmap
-   if( ( UINT ) GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) &bitmap ) != sizeof( BITMAP ) )
+   if( ( UINT ) GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) & bitmap ) != sizeof( BITMAP ) )
    {
       // Check if it is an icon
       if( !GetIconInfo( ( HICON ) hBmp, &icon ) )
@@ -1198,7 +1217,7 @@ VOID DrawGlyph( HDC hDC, int x, int y, int dx, int dy, HBITMAP hBmp, COLORREF rg
          // Ignore the user-provided color
          rgbTransparent = RGB( 255, 255, 255 );
          bHasBkColor = TRUE;
-         GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) &bitmap );
+         GetObject( hBmp, sizeof( BITMAP ), ( LPVOID ) & bitmap );
       }
    }
 

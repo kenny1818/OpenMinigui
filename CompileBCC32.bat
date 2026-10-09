@@ -1,3 +1,4 @@
+@echo off
 ::=======================================================================
 ::Configure apenas estas variáveis de ambiente; o Hbmk2 resolve automaticamente o restante.
 ::Configure only these environment variables; Hbmk2 automatically resolves the rest.
@@ -20,4 +21,9 @@ Set path=%MG_HRB%\BIN;%MG_BCC%\BIN;%path%
 ::/*FIM*/
 ::=======================================================================
 Call CriaLibsAll.bat
+if errorlevel 1 (
+    echo BUILD FALHOU - veja LogGeral.log
+) else (
+    echo BUILD OK
+)
 pause

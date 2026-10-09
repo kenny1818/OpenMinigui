@@ -6,16 +6,18 @@
 # xtranslate __defaultNIL( @<v>, <x> ) => ( <v> := iif( <v> == NIL, <x>, <v> ) )
 #endif
 
-// Define a constant for carriage return and line feed
+// Carriage return and line feed sequence used throughout raw PDF stream generation
 #define CRLF ( Chr( 13 ) + Chr( 10 ) )
 
-// Static array to hold report data
+// Module-wide static report array holding current PDF document state, buffers, and metadata
 STATIC s_aReport
 
 /*
- * Function: pdfInit
- * Description: Initializes the PDF report array.
- * Returns: The initialized report array.
+ * Function:    pdfInit
+ * Purpose:     Initializes the static PDF report state structure.
+ * Parameters:  None
+ * Returns:     Array - Reference to the newly allocated static report state array (s_aReport).
+ * Side Effects: Re-allocates s_aReport with size PARAMLEN.
  */
 FUNCTION pdfInit()
    s_aReport := Array( PARAMLEN )
@@ -23,11 +25,11 @@ FUNCTION pdfInit()
 RETURN s_aReport
 
 /*
- * Function: pdfWidth
- * Description: Sets the width of the report.
- * Parameters:
- *   _nWidth - The width to set.
- * Returns: NIL
+ * Function:    pdfWidth
+ * Purpose:     Sets the virtual column width for report coordinate calculations.
+ * Parameters:  _nWidth (Numeric) - Total columns/width for the virtual report grid.
+ * Returns:     NIL
+ * Side Effects: Updates the REPORTWIDTH element in static array s_aReport.
  */
 FUNCTION pdfWidth( _nWidth )
    s_aReport[ REPORTWIDTH ] := _nWidth
@@ -35,47 +37,50 @@ FUNCTION pdfWidth( _nWidth )
 RETURN NIL
 
 /*
- * Function: pdfTextWidth
- * Description: Calculates the width of a string in the PDF.
- * Parameters:
- *   cStr - The string to calculate the width for.
- * Returns: The width of the string.
+ * Function:    pdfTextWidth
+ * Purpose:     Calculates the rendered width of a given text string in millimeters.
+ * Parameters:  cStr (Character) - Text string to be measured.
+ * Returns:     Numeric - Width of the text in millimeters.
+ * Side Effects: None
  */
 FUNCTION pdfTextWidth( cStr )
 RETURN pdfLen( cStr ) / 25.4
 
 /*
- * Function: pdfAtSay
- * Description: Places a string at a specific position in the PDF.
- * Parameters:
- *   cString - The string to place.
- *   nRow - The row position.
- *   nCol - The column position.
- *   cUnits - The units for the position.
- *   lExact - Whether to use exact positioning.
- *   cId - An identifier for the string.
- * Returns: NIL
+ * Function:    pdfAtSay
+ * Purpose:     Renders a text string at specified coordinates within the active PDF page stream.
+ * Parameters:  cString (Character) - Text string to output.
+ *              nRow    (Numeric)   - Row position (defaults to current line).
+ *              nCol    (Numeric)   - Column position.
+ *              cUnits  (Character) - Position units ("R"=Rows, "M"=Millimeters; defaults to "R").
+ *              lExact  (Logical)   - Bypass automatic line height checks (.T./.F.; defaults to .F.).
+ *              cId     (Character) - Header item identifier for template editing.
+ * Returns:     NIL
+ * Side Effects: Appends raw PDF text operators to s_aReport[ PAGEBUFFER ],
+ *              updates font tracking state, and may trigger automatic page breaks.
  */
 FUNCTION pdfAtSay( cString, nRow, nCol, cUnits, lExact, cId )
 
    LOCAL _nFont, lReverse, nAt
+   // Apply default values to optional parameters
    __defaultNIL( @nRow, s_aReport[ REPORTLINE ] )
    __defaultNIL( @cUnits, "R" )
    __defaultNIL( @lExact, .F. )
    __defaultNIL( @cId, "" )
 
+   // Intercept and record call if currently defining a page header template
    IF s_aReport[ HEADEREDIT ]
       RETURN pdfHeader( "PDFATSAY", cId, { cString, nRow, nCol, cUnits, lExact } )
    ENDIF
 
-   // Replace page number placeholder with actual page number
+   // Substitute page number placeholder tag with current page number
    IF ( nAt := At( "#pagenumber#", cString ) ) > 0
       cString := Left( cString, nAt - 1 ) + hb_ntos( pdfPageNumber() ) + SubStr( cString, nAt + 12 )
    ENDIF
 
    lReverse := .F.
 
-   // Convert units if necessary
+   // Convert unit coordinates to absolute PDF points based on unit type
    IF cUnits == "M"
       nRow := pdfM2Y( nRow )
       nCol := pdfM2X( nCol )
@@ -90,23 +95,23 @@ FUNCTION pdfAtSay( cString, nRow, nCol, cUnits, lExact, cId )
          ( s_aReport[ PAGEX ] - pdfM2X( s_aReport[ PDFLEFT ] ) * 2 - 9.0 ) / 100.00
    ENDIF
 
-   // Process the string if it's not empty
+   // Process and output formatted text if non-empty
    IF ! Empty( cString )
       cString := pdfStringB( cString )
 
-      // Handle reverse and underline formatting
-      IF Right( cString, 1 ) == Chr( 255 ) // reverse
+      // Check trailing control characters for text attribute formatting (reverse / underline)
+      IF Right( cString, 1 ) == Chr( 255 ) // Reverse video text attribute
          cString := Left( cString, Len( cString ) - 1 )
          pdfBox( s_aReport[ PAGEY ] - nRow - s_aReport[ FONTSIZE ] + 2.0, nCol, s_aReport[ PAGEY ] - nRow + 2.0, nCol + pdfM2X( pdfLen( cString ) ) + 1,, 100, "D" )
          s_aReport[ PAGEBUFFER ] += " 1 g "
          lReverse := .T.
-      ELSEIF Right( cString, 1 ) == Chr( 254 ) // underline
+      ELSEIF Right( cString, 1 ) == Chr( 254 ) // Underline text attribute
          cString := Left( cString, Len( cString ) - 1 )
          pdfBox( s_aReport[ PAGEY ] - nRow + 0.5, nCol, s_aReport[ PAGEY ] - nRow + 1, nCol + pdfM2X( pdfLen( cString ) ) + 1,, 100, "D" )
       ENDIF
 
-      // Handle color text
-      IF ( nAt := At( Chr( 253 ), cString ) ) > 0 // some color text inside
+      // Extract embedded RGB color control byte sequence
+      IF ( nAt := At( Chr( 253 ), cString ) ) > 0 // Embedded RGB color specifier
          s_aReport[ PAGEBUFFER ] += CRLF + ;
             Chr_RGB( SubStr( cString, nAt + 1, 1 ) ) + " " + ;
             Chr_RGB( SubStr( cString, nAt + 2, 1 ) ) + " " + ;
@@ -114,7 +119,7 @@ FUNCTION pdfAtSay( cString, nRow, nCol, cUnits, lExact, cId )
          cString := Stuff( cString, nAt, 4, "" )
       ENDIF
 
-      // Handle font settings
+      // Construct PDF text object graphics stream
       _nFont := AScan( s_aReport[ FONTS ], {| arr | arr[ 1 ] == s_aReport[ FONTNAME ] } )
       IF !( s_aReport[ FONTNAME ] == s_aReport[ FONTNAMEPREV ] )
          s_aReport[ FONTNAMEPREV ] := s_aReport[ FONTNAME ]
@@ -126,6 +131,7 @@ FUNCTION pdfAtSay( cString, nRow, nCol, cUnits, lExact, cId )
          s_aReport[ PAGEBUFFER ] += CRLF + "BT " + LTrim( Transform( nCol, "9999.99" ) ) + " " + LTrim( Transform( nRow, "9999.99" ) ) + " Td (" + cString + ") Tj ET"
       ENDIF
 
+      // Restore fill color if reverse video was applied
       IF lReverse
          s_aReport[ PAGEBUFFER ] += " 0 g "
       ENDIF
@@ -134,11 +140,14 @@ FUNCTION pdfAtSay( cString, nRow, nCol, cUnits, lExact, cId )
 RETURN NIL
 
 /*
- * Function: pdfBold
- * Description: Sets the font to bold.
- * Returns: NIL
+ * Function:    pdfBold
+ * Purpose:     Selects the Bold style variant of the active font family.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Updates FONTNAME, PAGEFONTS, and FONTS in s_aReport.
  */
 FUNCTION pdfBold()
+   // Map bold font variant index based on active font family name
    IF pdfGetFontInfo( "NAME" ) == "Times"
       s_aReport[ FONTNAME ] := 2
    ELSEIF pdfGetFontInfo( "NAME" ) == "Helvetica"
@@ -154,11 +163,14 @@ FUNCTION pdfBold()
 RETURN NIL
 
 /*
- * Function: pdfBoldItalic
- * Description: Sets the font to bold italic.
- * Returns: NIL
+ * Function:    pdfBoldItalic
+ * Purpose:     Selects the Bold-Italic style variant of the active font family.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Updates FONTNAME, PAGEFONTS, and FONTS in s_aReport.
  */
 FUNCTION pdfBoldItalic()
+   // Map bold-italic font variant index based on active font family name
    IF pdfGetFontInfo( "NAME" ) == "Times"
       s_aReport[ FONTNAME ] := 4
    ELSEIF pdfGetFontInfo( "NAME" ) == "Helvetica"
@@ -174,14 +186,14 @@ FUNCTION pdfBoldItalic()
 RETURN NIL
 
 /*
- * Function: pdfBookAdd
- * Description: Adds a bookmark to the PDF.
- * Parameters:
- *   cTitle - The title of the bookmark.
- *   nLevel - The level of the bookmark.
- *   nPage - The page number.
- *   nLine - The line number.
- * Returns: NIL
+ * Function:    pdfBookAdd
+ * Purpose:     Adds an entry (bookmark) to the PDF document navigation outline tree.
+ * Parameters:  cTitle (Character) - Display text for the bookmark.
+ *              nLevel (Numeric)   - Nesting level depth in outline tree hierarchy (1, 2, ...).
+ *              nPage  (Numeric)   - Target page number linked to the bookmark.
+ *              nLine  (Numeric)   - Target line position on the page.
+ * Returns:     NIL
+ * Side Effects: Appends outline record array to s_aReport[ BOOKMARK ].
  */
 FUNCTION pdfBookAdd( cTitle, nLevel, nPage, nLine )
    AAdd( s_aReport[ BOOKMARK ], { nLevel, AllTrim( cTitle ), 0, 0, 0, 0, 0, 0, nPage, iif( nLevel == 1, s_aReport[ PAGEY ], s_aReport[ PAGEY ] - nLine * 72 / s_aReport[ LPI ] ) } )
@@ -189,9 +201,11 @@ FUNCTION pdfBookAdd( cTitle, nLevel, nPage, nLine )
 RETURN NIL
 
 /*
- * Function: pdfBookClose
- * Description: Closes the bookmark section.
- * Returns: NIL
+ * Function:    pdfBookClose
+ * Purpose:     Clears and releases bookmark outline data structure.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Resets s_aReport[ BOOKMARK ] element to NIL.
  */
 FUNCTION pdfBookClose()
    s_aReport[ BOOKMARK ] := NIL
@@ -199,17 +213,18 @@ FUNCTION pdfBookClose()
 RETURN NIL
 
 /*
- * Function: pdfBookCount
- * Description: Counts the number of bookmarks at a specific level.
- * Parameters:
- *   nRecno - The record number.
- *   nCurLevel - The current level.
- * Returns: The count of bookmarks.
+ * Function:    pdfBookCount
+ * Purpose:     Counts immediate sub-elements under a given bookmark outline node.
+ * Parameters:  nRecno    (Numeric) - Index of parent bookmark in s_aReport[ BOOKMARK ].
+ *              nCurLevel (Numeric) - Nesting level of current parent node.
+ * Returns:     Numeric - Negative count of child bookmarks (per PDF outline specification).
+ * Side Effects: None
  */
 STATIC FUNCTION pdfBookCount( nRecno, nCurLevel )
 
    LOCAL nTempLevel, nCount := 0, nLen := Len( s_aReport[ BOOKMARK ] )
    ++nRecno
+   // Iterate forward through outline entries to count child elements
    WHILE nRecno <= nLen
       nTempLevel := s_aReport[ BOOKMARK ][ nRecno ][ BOOKLEVEL ]
       IF nTempLevel <= nCurLevel
@@ -225,13 +240,13 @@ STATIC FUNCTION pdfBookCount( nRecno, nCurLevel )
 RETURN -1 * nCount
 
 /*
- * Function: pdfBookFirst
- * Description: Finds the first bookmark at a specific level.
- * Parameters:
- *   nRecno - The record number.
- *   nCurLevel - The current level.
- *   nObj - The object number.
- * Returns: The object number of the first bookmark.
+ * Function:    pdfBookFirst
+ * Purpose:     Locates the first child bookmark node object ID for a given parent node.
+ * Parameters:  nRecno    (Numeric) - Index of parent bookmark in s_aReport[ BOOKMARK ].
+ *              nCurLevel (Numeric) - Nesting level of current parent node.
+ *              nObj      (Numeric) - Base PDF object number offset for bookmarks.
+ * Returns:     Numeric - PDF object ID of the first child bookmark, or 0 if none.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfBookFirst( nRecno, nCurLevel, nObj )
 
@@ -246,13 +261,13 @@ STATIC FUNCTION pdfBookFirst( nRecno, nCurLevel, nObj )
 RETURN iif( nFirst == 0, nFirst, nObj + nFirst )
 
 /*
- * Function: pdfBookLast
- * Description: Finds the last bookmark at a specific level.
- * Parameters:
- *   nRecno - The record number.
- *   nCurLevel - The current level.
- *   nObj - The object number.
- * Returns: The object number of the last bookmark.
+ * Function:    pdfBookLast
+ * Purpose:     Locates the last child bookmark node object ID for a given parent node.
+ * Parameters:  nRecno    (Numeric) - Index of parent bookmark in s_aReport[ BOOKMARK ].
+ *              nCurLevel (Numeric) - Nesting level of current parent node.
+ *              nObj      (Numeric) - Base PDF object number offset for bookmarks.
+ * Returns:     Numeric - PDF object ID of the last child bookmark, or 0 if none.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfBookLast( nRecno, nCurLevel, nObj )
 
@@ -272,18 +287,19 @@ STATIC FUNCTION pdfBookLast( nRecno, nCurLevel, nObj )
 RETURN iif( nLast == 0, nLast, nObj + nLast )
 
 /*
- * Function: pdfBookNext
- * Description: Finds the next bookmark at the same level.
- * Parameters:
- *   nRecno - The record number.
- *   nCurLevel - The current level.
- *   nObj - The object number.
- * Returns: The object number of the next bookmark.
+ * Function:    pdfBookNext
+ * Purpose:     Finds the next sibling bookmark node object ID at the same depth level.
+ * Parameters:  nRecno    (Numeric) - Index of current bookmark in s_aReport[ BOOKMARK ].
+ *              nCurLevel (Numeric) - Nesting level depth of current node.
+ *              nObj      (Numeric) - Base PDF object number offset for bookmarks.
+ * Returns:     Numeric - PDF object ID of next sibling bookmark, or 0 if none.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfBookNext( nRecno, nCurLevel, nObj )
 
    LOCAL nTempLevel, nNext := 0, nLen := Len( s_aReport[ BOOKMARK ] )
    ++nRecno
+   // Iterate forward to locate next entry at matching hierarchy level
    WHILE nRecno <= nLen
       nTempLevel := s_aReport[ BOOKMARK ][ nRecno ][ BOOKLEVEL ]
       IF nCurLevel > nTempLevel
@@ -292,7 +308,7 @@ STATIC FUNCTION pdfBookNext( nRecno, nCurLevel, nObj )
          nNext := nRecno
          EXIT
       ELSE
-         // keep going
+         // Skip deeper nested child levels
       ENDIF
       ++nRecno
    ENDDO
@@ -300,9 +316,11 @@ STATIC FUNCTION pdfBookNext( nRecno, nCurLevel, nObj )
 RETURN iif( nNext == 0, nNext, nObj + nNext )
 
 /*
- * Function: pdfBookOpen
- * Description: Opens the bookmark section.
- * Returns: NIL
+ * Function:    pdfBookOpen
+ * Purpose:     Initializes the document bookmark/outline collection list.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Sets s_aReport[ BOOKMARK ] to an empty array.
  */
 FUNCTION pdfBookOpen()
    s_aReport[ BOOKMARK ] := {}
@@ -310,19 +328,20 @@ FUNCTION pdfBookOpen()
 RETURN NIL
 
 /*
- * Function: pdfBookParent
- * Description: Finds the parent bookmark.
- * Parameters:
- *   nRecno - The record number.
- *   nCurLevel - The current level.
- *   nObj - The object number.
- * Returns: The object number of the parent bookmark.
+ * Function:    pdfBookParent
+ * Purpose:     Locates parent bookmark object ID for a child node.
+ * Parameters:  nRecno    (Numeric) - Index of child bookmark in s_aReport[ BOOKMARK ].
+ *              nCurLevel (Numeric) - Nesting level depth of child node.
+ *              nObj      (Numeric) - Base PDF object number offset for bookmarks.
+ * Returns:     Numeric - PDF object ID of parent bookmark.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfBookParent( nRecno, nCurLevel, nObj )
 
    LOCAL nTempLevel
    LOCAL nParent := 0
    --nRecno
+   // Traverse backwards to locate enclosing parent level
    WHILE nRecno > 0
       nTempLevel := s_aReport[ BOOKMARK ][ nRecno ][ BOOKLEVEL ]
       IF nTempLevel < nCurLevel
@@ -335,19 +354,20 @@ STATIC FUNCTION pdfBookParent( nRecno, nCurLevel, nObj )
 RETURN iif( nParent == 0, nObj - 1, nObj + nParent )
 
 /*
- * Function: pdfBookPrev
- * Description: Finds the previous bookmark at the same level.
- * Parameters:
- *   nRecno - The record number.
- *   nCurLevel - The current level.
- *   nObj - The object number.
- * Returns: The object number of the previous bookmark.
+ * Function:    pdfBookPrev
+ * Purpose:     Finds previous sibling bookmark node object ID at the same depth level.
+ * Parameters:  nRecno    (Numeric) - Index of current bookmark in s_aReport[ BOOKMARK ].
+ *              nCurLevel (Numeric) - Nesting level depth of current node.
+ *              nObj      (Numeric) - Base PDF object number offset for bookmarks.
+ * Returns:     Numeric - PDF object ID of previous sibling bookmark, or 0 if none.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfBookPrev( nRecno, nCurLevel, nObj )
 
    LOCAL nTempLevel
    LOCAL nPrev := 0
    --nRecno
+   // Traverse backwards to locate preceding entry at matching level
    WHILE nRecno > 0
       nTempLevel := s_aReport[ BOOKMARK ][ nRecno ][ BOOKLEVEL ]
       IF nCurLevel > nTempLevel
@@ -356,7 +376,7 @@ STATIC FUNCTION pdfBookPrev( nRecno, nCurLevel, nObj )
          nPrev := nRecno
          EXIT
       ELSE
-         // keep going
+         // Skip nested elements
       ENDIF
       --nRecno
    ENDDO
@@ -364,30 +384,31 @@ STATIC FUNCTION pdfBookPrev( nRecno, nCurLevel, nObj )
 RETURN iif( nPrev == 0, nPrev, nObj + nPrev )
 
 /*
- * Function: pdfBox
- * Description: Draws a box in the PDF.
- * Parameters:
- *   x1 - The x-coordinate of the top-left corner.
- *   y1 - The y-coordinate of the top-left corner.
- *   x2 - The x-coordinate of the bottom-right corner.
- *   y2 - The y-coordinate of the bottom-right corner.
- *   nBorder - The border width.
- *   nShade - The shading percentage.
- *   cUnits - The units for the coordinates.
- *   cColor - The color of the box.
- *   cId - An identifier for the box.
- * Returns: NIL
+ * Function:    pdfBox
+ * Purpose:     Draws a filled and/or bordered rectangle on the active PDF page.
+ * Parameters:  x1      (Numeric)   - Top/Y1 coordinate position.
+ *              y1      (Numeric)   - Left/X1 coordinate position.
+ *              x2      (Numeric)   - Bottom/Y2 coordinate position.
+ *              y2      (Numeric)   - Right/X2 coordinate position.
+ *              nBorder (Numeric)   - Border line thickness (0 = no border).
+ *              nShade  (Numeric)   - Fill shade percentage (0..100; 0 = transparent).
+ *              cUnits  (Character) - Coordinate units ("M"=Millimeters, "D"=Dots/Points).
+ *              cColor  (Character) - RGB color string specifier.
+ *              cId     (Character) - Identifier if executing in header editing mode.
+ * Returns:     NIL
+ * Side Effects: Appends rectangle rendering commands to s_aReport[ PAGEBUFFER ].
  */
 FUNCTION pdfBox( x1, y1, x2, y2, nBorder, nShade, cUnits, cColor, cId )
 
    LOCAL cBoxColor
 
+   // Set default parameter values
    __defaultNIL( @nBorder, 0 )
    __defaultNIL( @nShade, 0 )
    __defaultNIL( @cUnits, "M" )
    __defaultNIL( @cColor, "" )
 
-   // Set box color
+   // Build color string command if color parameter is supplied
    cBoxColor := ""
    IF ! Empty( cColor )
       cBoxColor := " " + Chr_RGB( SubStr( cColor, 2, 1 ) ) + " " + ;
@@ -398,12 +419,12 @@ FUNCTION pdfBox( x1, y1, x2, y2, nBorder, nShade, cUnits, cColor, cId )
       ENDIF
    ENDIF
 
-   // Handle header edit mode
+   // Store graphics command in header structure if header editing mode is enabled
    IF s_aReport[ HEADEREDIT ]
       RETURN pdfHeader( "PDFBOX", cId, { x1, y1, x2, y2, nBorder, nShade, cUnits } )
    ENDIF
 
-   // Draw the box based on units
+   // Construct PDF path rectangle operators based on units
    IF cUnits == "M"
       y1 += 0.5
       y2 += 0.5
@@ -416,7 +437,7 @@ FUNCTION pdfBox( x1, y1, x2, y2, nBorder, nShade, cUnits, cColor, cId )
          s_aReport[ PAGEBUFFER ] += CRLF + "0 g " + hb_ntos( pdfM2X( y1 ) ) + " " + hb_ntos( pdfM2Y( x2 - nBorder ) ) + " " + hb_ntos( pdfM2X( y2 - y1 ) ) + " -" + hb_ntos( pdfM2X( nBorder ) ) + " re f"
          s_aReport[ PAGEBUFFER ] += CRLF + "0 g " + hb_ntos( pdfM2X( y1 ) ) + " " + hb_ntos( pdfM2Y( x1 ) ) + " " + hb_ntos( pdfM2X( nBorder ) ) + " -" + hb_ntos( pdfM2X( x2 - x1 ) ) + " re f"
       ENDIF
-   ELSEIF cUnits == "D"// "Dots"
+   ELSEIF cUnits == "D"// "Dots" points mode
       IF nShade > 0
          s_aReport[ PAGEBUFFER ] += CRLF + Transform( 1.00 - nShade / 100.00, "9.99" ) + " g " + cBoxColor + hb_ntos( y1 ) + " " + hb_ntos( s_aReport[ PAGEY ] - x1 ) + " " + hb_ntos( y2 - y1 ) + " -" + hb_ntos( x2 - x1 ) + " re f 0 g"
       ENDIF
@@ -431,24 +452,26 @@ FUNCTION pdfBox( x1, y1, x2, y2, nBorder, nShade, cUnits, cColor, cId )
 RETURN NIL
 
 /*
- * Function: pdfBox1
- * Description: Draws a box with specific border and fill colors.
- * Parameters:
- *   nTop - The top position.
- *   nLeft - The left position.
- *   nBottom - The bottom position.
- *   nRight - The right position.
- *   nBorderWidth - The border width.
- *   cBorderColor - The border color.
- *   cBoxColor - The fill color.
- * Returns: NIL
+ * Function:    pdfBox1
+ * Purpose:     Draws a rectangle with customizable border stroke width, border RGB, and fill RGB colors.
+ * Parameters:  nTop         (Numeric)   - Top position in PDF points.
+ *              nLeft        (Numeric)   - Left position in PDF points.
+ *              nBottom      (Numeric)   - Bottom position in PDF points.
+ *              nRight       (Numeric)   - Right position in PDF points.
+ *              nBorderWidth (Numeric)   - Stroke line width in points (default 0.5).
+ *              cBorderColor (Character) - 3-character binary RGB string for border color.
+ *              cBoxColor    (Character) - 3-character binary RGB string for fill color.
+ * Returns:     NIL
+ * Side Effects: Appends path operators directly to s_aReport[ PAGEBUFFER ].
  */
 FUNCTION pdfBox1( nTop, nLeft, nBottom, nRight, nBorderWidth, cBorderColor, cBoxColor )
 
+   // Set default border width and RGB black/white parameters
    __defaultNIL( @nBorderWidth, 0.5 )
    __defaultNIL( @cBorderColor, Chr( 0 ) + Chr( 0 ) + Chr( 0 ) )
    __defaultNIL( @cBoxColor, Chr( 255 ) + Chr( 255 ) + Chr( 255 ) )
 
+   // Build PDF path rectangle and color operator stream
    s_aReport[ PAGEBUFFER ] += CRLF + ;
       Chr_RGB( SubStr( cBorderColor, 1, 1 ) ) + " " + ;
       Chr_RGB( SubStr( cBorderColor, 2, 1 ) ) + " " + ;
@@ -470,35 +493,38 @@ FUNCTION pdfBox1( nTop, nLeft, nBottom, nRight, nBorderWidth, cBorderColor, cBox
 RETURN NIL
 
 /*
- * Function: pdfCenter
- * Description: Centers a string at a specific position in the PDF.
- * Parameters:
- *   cString - The string to center.
- *   nRow - The row position.
- *   nCol - The column position.
- *   cUnits - The units for the position.
- *   lExact - Whether to use exact positioning.
- *   cId - An identifier for the string.
- * Returns: NIL
+ * Function:    pdfCenter
+ * Purpose:     Displays text horizontally centered at a target column position.
+ * Parameters:  cString (Character) - Text string to render.
+ *              nRow    (Numeric)   - Row position.
+ *              nCol    (Numeric)   - Column origin for center alignment.
+ *              cUnits  (Character) - Units identifier ("R"=Rows, "M"=Millimeters).
+ *              lExact  (Logical)   - If .T., bypasses auto line checks.
+ *              cId     (Character) - Header item identifier for header editing.
+ * Returns:     NIL
+ * Side Effects: Calls pdfAtSay to output string; updates current line position.
  */
 FUNCTION pdfCenter( cString, nRow, nCol, cUnits, lExact, cId )
 
    LOCAL nLen, nAt
 
+   // Apply defaults to positioning arguments
    __defaultNIL( @nRow, s_aReport[ REPORTLINE ] )
    __defaultNIL( @cUnits, "R" )
    __defaultNIL( @lExact, .F. )
    __defaultNIL( @nCol, iif( cUnits == "R", s_aReport[ REPORTWIDTH ] / 2, s_aReport[ PAGEX ] / 72 * 25.4 / 2 ) )
 
+   // Redirect command if currently editing header template
    IF s_aReport[ HEADEREDIT ]
       RETURN pdfHeader( "PDFCENTER", cId, { cString, nRow, nCol, cUnits, lExact } )
    ENDIF
 
-   // Replace page number placeholder with actual page number
+   // Substitute page number macro tag if present in text
    IF ( nAt := At( "#pagenumber#", cString ) ) > 0
       cString := Left( cString, nAt - 1 ) + hb_ntos( pdfPageNumber() ) + SubStr( cString, nAt + 12 )
    ENDIF
 
+   // Calculate string half-length offset in millimeters
    nLen := pdfLen( cString ) / 2
 
    IF cUnits == "R"
@@ -508,16 +534,17 @@ FUNCTION pdfCenter( cString, nRow, nCol, cUnits, lExact, cId )
       ENDIF
    ENDIF
 
+   // Render text using offset column calculated for center alignment
    pdfAtSay( cString, pdfR2M( nRow ), iif( cUnits == "R", s_aReport[ PDFLEFT ] + ( s_aReport[ PAGEX ] / 72 * 25.4 - 2 * s_aReport[ PDFLEFT ] ) * nCol / s_aReport[ REPORTWIDTH ], nCol ) - nLen, "M", lExact )
 
 RETURN NIL
 
 /*
- * Function: pdfCheckLine
- * Description: Checks if a line is within the printable area.
- * Parameters:
- *   nRow - The row to check.
- * Returns: NIL
+ * Function:    pdfCheckLine
+ * Purpose:     Verifies if a target row exceeds printable page bottom boundary.
+ * Parameters:  nRow (Numeric) - Proposed row position.
+ * Returns:     NIL
+ * Side Effects: Calls pdfNewPage() if boundary is exceeded; updates s_aReport[ REPORTLINE ].
  */
 STATIC FUNCTION pdfCheckLine( nRow )
    IF nRow + s_aReport[ PDFTOP ] > s_aReport[ PDFBOTTOM ]
@@ -529,17 +556,20 @@ STATIC FUNCTION pdfCheckLine( nRow )
 RETURN NIL
 
 /*
- * Function: pdfClose
- * Description: Closes the PDF document.
- * Returns: NIL
+ * Function:    pdfClose
+ * Purpose:     Finalizes the PDF document structure, outputs catalog objects, cross-reference table, and trailer.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Closes active low-level file handle and sets s_aReport to NIL.
  */
 FUNCTION pdfClose()
 
    LOCAL nI, cTemp, nCurLevel, nObj1, nLast, nCount, nFirst, nRecno, nBooklen
 
+   // Flush and write active page object content
    pdfClosePage()
 
-   // Kids
+   // Write PDF Pages catalog / Kids array object
    s_aReport[ REFS ][ 2 ] := s_aReport[ DOCLEN ]
    cTemp := ;
       "1 0 obj" + CRLF + ;
@@ -555,7 +585,7 @@ FUNCTION pdfClose()
    s_aReport[ DOCLEN ] += Len( cTemp )
    FWrite( s_aReport[ HANDLE ], cTemp )
 
-   // Info
+   // Write PDF Document Information dictionary object
    ++s_aReport[ REPORTOBJ ]
    AAdd( s_aReport[ REFS ], s_aReport[ DOCLEN ] )
    cTemp := hb_ntos( s_aReport[ REPORTOBJ ] ) + " 0 obj" + CRLF + ;
@@ -572,7 +602,7 @@ FUNCTION pdfClose()
    s_aReport[ DOCLEN ] += Len( cTemp )
    FWrite( s_aReport[ HANDLE ], cTemp )
 
-   // Root
+   // Write PDF Document Catalog Root object
    ++s_aReport[ REPORTOBJ ]
    AAdd( s_aReport[ REFS ], s_aReport[ DOCLEN ] )
    cTemp := hb_ntos( s_aReport[ REPORTOBJ ] ) + " 0 obj" + CRLF + ;
@@ -583,11 +613,13 @@ FUNCTION pdfClose()
    ++s_aReport[ REPORTOBJ ]
    nObj1 := s_aReport[ REPORTOBJ ]
 
+   // Build bookmark outline object tree if bookmarks were added
    IF nBookLen > 0
       nRecno := 1
       nFirst := s_aReport[ REPORTOBJ ] + 1
       nLast := 0
       nCount := 0
+      // Resolve tree links (parent, prev, next, first, last, count) for all outline items
       WHILE nRecno <= nBookLen
          nCurLevel := s_aReport[ BOOKMARK ][ nRecno ][ BOOKLEVEL ]
          s_aReport[ BOOKMARK ][ nRecno ][ BOOKPARENT ] := pdfBookParent( nRecno, nCurLevel, s_aReport[ REPORTOBJ ] )
@@ -609,6 +641,7 @@ FUNCTION pdfClose()
       FWrite( s_aReport[ HANDLE ], cTemp )
       ++s_aReport[ REPORTOBJ ]
       nRecno := 1
+      // Output individual outline item objects
       FOR nI := 1 TO nBookLen
          cTemp := CRLF + hb_ntos( s_aReport[ REPORTOBJ ] + nI - 1 ) + " 0 obj" + CRLF + ;
             "<<" + CRLF + ;
@@ -635,6 +668,7 @@ FUNCTION pdfClose()
       FWrite( s_aReport[ HANDLE ], cTemp )
    ENDIF
 
+   // Construct cross-reference table (xref) and PDF trailer
    cTemp := CRLF
    s_aReport[ DOCLEN ] += Len( cTemp )
    ++s_aReport[ REPORTOBJ ]
@@ -651,29 +685,35 @@ FUNCTION pdfClose()
    FWrite( s_aReport[ HANDLE ], cTemp )
 
 #if 0
+   // Reserved block for stream optimization routines
    IF s_aReport[ OPTIMIZE ]
       pdfOptimize() coming !
    ENDIF
 
 #endif
 
+   // Close output file handle and reset report environment
    FClose( s_aReport[ HANDLE ] )
    s_aReport := NIL
 
 RETURN NIL
 
 /*
- * Function: pdfClosePage
- * Description: Closes the current page in the PDF.
- * Returns: NIL
+ * Function:    pdfClosePage
+ * Purpose:     Flushes and writes the active page objects (Page, Resources, Stream, Fonts, Images) to file.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Writes data to file handle; resets s_aReport[ PAGEBUFFER ].
  */
 STATIC FUNCTION pdfClosePage()
 
    LOCAL cTemp, cBuffer, nBuffer, nRead, nI, k, nImage, nFont, nImageHandle
 
+   // Store file byte offset references for page dictionary
    AAdd( s_aReport[ REFS ], s_aReport[ DOCLEN ] )
    AAdd( s_aReport[ PAGES ], s_aReport[ REPORTOBJ ] + 1 )
 
+   // Emit PDF Page Object
    cTemp := ;
       hb_ntos( ++s_aReport[ REPORTOBJ ] ) + " 0 obj" + CRLF + ;
       "<<" + CRLF + ;
@@ -687,6 +727,7 @@ STATIC FUNCTION pdfClosePage()
    s_aReport[ DOCLEN ] += Len( cTemp )
    FWrite( s_aReport[ HANDLE ], cTemp )
 
+   // Emit PDF Resources Dictionary object
    AAdd( s_aReport[ REFS ], s_aReport[ DOCLEN ] )
    cTemp := ;
       hb_ntos( s_aReport[ REPORTOBJ ] - 1 ) + " 0 obj" + CRLF + ;
@@ -694,6 +735,7 @@ STATIC FUNCTION pdfClosePage()
       "/ColorSpace << /DeviceRGB /DeviceGray >>" + CRLF + ;
       "/ProcSet [ /PDF /Text /ImageB /ImageC ]"
 
+   // Add font resource mappings
    IF Len( s_aReport[ PAGEFONTS ] ) > 0
       cTemp += CRLF + ;
          "/Font" + CRLF + ;
@@ -705,6 +747,7 @@ STATIC FUNCTION pdfClosePage()
       cTemp += CRLF + ">>"
    ENDIF
 
+   // Add image XObject resource mappings
    IF Len( s_aReport[ PAGEIMAGES ] ) > 0
       cTemp += CRLF + "/XObject" + CRLF + "<<"
       FOR nI := 1 TO Len( s_aReport[ PAGEIMAGES ] )
@@ -722,6 +765,7 @@ STATIC FUNCTION pdfClosePage()
    s_aReport[ DOCLEN ] += Len( cTemp )
    FWrite( s_aReport[ HANDLE ], cTemp )
 
+   // Write Content Stream Header object
    AAdd( s_aReport[ REFS ], s_aReport[ DOCLEN ] )
    cTemp := hb_ntos( s_aReport[ REPORTOBJ ] ) + " 0 obj << /Length " + ;
       hb_ntos( s_aReport[ REPORTOBJ ] + 1 ) + " 0 R >>" + CRLF + ;
@@ -729,6 +773,7 @@ STATIC FUNCTION pdfClosePage()
    s_aReport[ DOCLEN ] += Len( cTemp )
    FWrite( s_aReport[ HANDLE ], cTemp )
 
+   // Prepend image placement stream operators to the page buffer
    IF Len( s_aReport[ PAGEIMAGES ] ) > 0
       cTemp := ""
       FOR nI := 1 TO Len( s_aReport[ PAGEIMAGES ] )
@@ -746,12 +791,14 @@ STATIC FUNCTION pdfClosePage()
       s_aReport[ PAGEBUFFER ] := cTemp + s_aReport[ PAGEBUFFER ]
    ENDIF
 
+   // Write Content Stream Body and closing tags
    cTemp := s_aReport[ PAGEBUFFER ]
    cTemp += CRLF + "endstream" + CRLF + ;
       "endobj" + CRLF
    s_aReport[ DOCLEN ] += Len( cTemp )
    FWrite( s_aReport[ HANDLE ], cTemp )
 
+   // Write Content Stream Length object
    AAdd( s_aReport[ REFS ], s_aReport[ DOCLEN ] )
    cTemp := hb_ntos( ++s_aReport[ REPORTOBJ ] ) + " 0 obj" + CRLF + ;
       hb_ntos( Len( s_aReport[ PAGEBUFFER ] ) ) + CRLF + ;
@@ -759,6 +806,7 @@ STATIC FUNCTION pdfClosePage()
    s_aReport[ DOCLEN ] += Len( cTemp )
    FWrite( s_aReport[ HANDLE ], cTemp )
 
+   // Emit Type1 Font objects referenced on this page
    FOR nI := 1 TO Len( s_aReport[ FONTS ] )
       IF s_aReport[ FONTS ][ nI ][ 2 ] > s_aReport[ REPORTOBJ ]
          AAdd( s_aReport[ REFS ], s_aReport[ DOCLEN ] )
@@ -777,6 +825,7 @@ STATIC FUNCTION pdfClosePage()
       ENDIF
    NEXT
 
+   // Emit Image XObjects and stream binary data
    FOR nI := 1 TO Len( s_aReport[ IMAGES ] )
       IF s_aReport[ IMAGES ][ nI ][ 2 ] > s_aReport[ REPORTOBJ ]
          AAdd( s_aReport[ REFS ], s_aReport[ DOCLEN ] )
@@ -796,6 +845,7 @@ STATIC FUNCTION pdfClosePage()
             "stream" + CRLF
          s_aReport[ DOCLEN ] += Len( cTemp )
          FWrite( s_aReport[ HANDLE ], cTemp )
+         // Read image data from disk in chunks and copy to PDF stream
          nImageHandle := FOpen( s_aReport[ IMAGES ][ nI ][ 1 ] )
          FSeek( nImageHandle, s_aReport[ IMAGES ][ nI ][ 3 ][ IMAGE_FROM ] )
          nBuffer := 8192
@@ -820,6 +870,7 @@ STATIC FUNCTION pdfClosePage()
       ENDIF
    NEXT
 
+   // Reset tracking state for next page
    s_aReport[ REPORTOBJ ] := s_aReport[ NEXTOBJ ]
    s_aReport[ NEXTOBJ ] := s_aReport[ REPORTOBJ ] + 4
    s_aReport[ PAGEBUFFER ] := ""
@@ -827,11 +878,12 @@ STATIC FUNCTION pdfClosePage()
 RETURN NIL
 
 /*
- * Function: pdfGetFontInfo
- * Description: Gets information about the current font.
- * Parameters:
- *   cParam - The parameter to get ("NAME" or "TYPE").
- * Returns: The requested font information.
+ * Function:    pdfGetFontInfo
+ * Purpose:     Queries font family name or style index offset of active font.
+ * Parameters:  cParam (Character) - Query selector ("NAME" or "TYPE").
+ * Returns:     String or Numeric - Font family name ("Times", "Helvetica", "Courier")
+ *              or style index offset (0..3).
+ * Side Effects: None
  */
 STATIC FUNCTION pdfGetFontInfo( cParam )
 
@@ -844,27 +896,28 @@ STATIC FUNCTION pdfGetFontInfo( cParam )
       ELSE
          cRet := "Courier"
       ENDIF
-   ELSE // size
+   ELSE // Style index calculation
       cRet := Int( ( s_aReport[ FONTNAME ] - 1 ) % 4 )
    ENDIF
 
 RETURN cRet
 
 /*
- * Function: pdfImage
- * Description: Inserts an image into the PDF.
- * Parameters:
- *   cFile - The image file.
- *   nRow - The row position.
- *   nCol - The column position.
- *   cUnits - The units for the position.
- *   nHeight - The height of the image.
- *   nWidth - The width of the image.
- *   cId - An identifier for the image.
- * Returns: NIL
+ * Function:    pdfImage
+ * Purpose:     Adds an image reference (JPEG/TIFF) onto the current page.
+ * Parameters:  cFile   (Character) - Image file path.
+ *              nRow    (Numeric)   - Vertical position.
+ *              nCol    (Numeric)   - Horizontal position.
+ *              cUnits  (Character) - Positioning units ("R", "M", or "D").
+ *              nHeight (Numeric)   - Image display height override.
+ *              nWidth  (Numeric)   - Image display width override.
+ *              cId     (Character) - Identifier if editing header.
+ * Returns:     NIL
+ * Side Effects: Appends image record to s_aReport[ PAGEIMAGES ].
  */
 FUNCTION pdfImage( cFile, nRow, nCol, cUnits, nHeight, nWidth, cId )
 
+   // Set default parameters
    __defaultNIL( @nRow, s_aReport[ REPORTLINE ] )
    __defaultNIL( @nCol, 0 )
    __defaultNIL( @nHeight, 0 )
@@ -872,11 +925,12 @@ FUNCTION pdfImage( cFile, nRow, nCol, cUnits, nHeight, nWidth, cId )
    __defaultNIL( @cUnits, "R" )
    __defaultNIL( @cId, "" )
 
+   // Redirect command if editing header template
    IF s_aReport[ HEADEREDIT ]
       RETURN pdfHeader( "PDFIMAGE", cId, { cFile, nRow, nCol, cUnits, nHeight, nWidth } )
    ENDIF
 
-   // Convert units if necessary
+   // Convert unit coordinates to PDF page points based on unit type
    IF cUnits == "M"
       nRow := s_aReport[ PAGEY ] - pdfM2Y( nRow )
       nCol := pdfM2X( nCol )
@@ -894,16 +948,20 @@ FUNCTION pdfImage( cFile, nRow, nCol, cUnits, nHeight, nWidth, cId )
    ELSEIF cUnits == "D"
    ENDIF
 
+   // Register image reference on current page
    AAdd( s_aReport[ PAGEIMAGES ], { cFile, nRow, nCol, nHeight, nWidth } )
 
 RETURN NIL
 
 /*
- * Function: pdfItalic
- * Description: Sets the font to italic.
- * Returns: NIL
+ * Function:    pdfItalic
+ * Purpose:     Selects the Italic style variant of the active font family.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Updates FONTNAME, PAGEFONTS, and FONTS in s_aReport.
  */
 FUNCTION pdfItalic()
+   // Map italic font variant index based on active font family name
    IF pdfGetFontInfo( "NAME" ) == "Times"
       s_aReport[ FONTNAME ] := 3
    ELSEIF pdfGetFontInfo( "NAME" ) == "Helvetica"
@@ -919,17 +977,18 @@ FUNCTION pdfItalic()
 RETURN NIL
 
 /*
- * Function: pdfLen
- * Description: Calculates the length of a string in the current font.
- * Parameters:
- *   cString - The string to calculate the length for.
- * Returns: The length of the string.
+ * Function:    pdfLen
+ * Purpose:     Calculates physical rendered text length in millimeters using metric tables.
+ * Parameters:  cString (Character) - String to measure.
+ * Returns:     Numeric - String width in millimeters.
+ * Side Effects: None
  */
 FUNCTION pdfLen( cString )
 
    LOCAL nWidth := 0.00, nI, nLen, nArr, nAdd := ( s_aReport[ FONTNAME ] - 1 ) % 4
    nLen := Len( cString )
-   IF Right( cString, 1 ) == Chr( 255 ) .OR. Right( cString, 1 ) == Chr( 254 ) // reverse or underline
+   // Exclude trailing attribute control bytes if present
+   IF Right( cString, 1 ) == Chr( 255 ) .OR. Right( cString, 1 ) == Chr( 254 ) // Reverse video or underline
       --nLen
    ENDIF
    IF pdfGetFontInfo( "NAME" ) == "Times"
@@ -939,6 +998,7 @@ FUNCTION pdfLen( cString )
    ELSE
       nArr := 3
    ENDIF
+   // Accumulate character widths from loaded metric table
    IF ! Empty( s_aReport[ FONTWIDTH ] )
       FOR nI := 1 TO nLen
          nWidth += s_aReport[ FONTWIDTH ][ nArr ][ ( Asc( SubStr( cString, nI, 1 ) ) - 32 ) * 4 + 1 + nAdd ] * 25.4 * s_aReport[ FONTSIZE ] / 720.00 / 100.00
@@ -948,41 +1008,41 @@ FUNCTION pdfLen( cString )
 RETURN nWidth
 
 /*
- * Function: pdfM2R
- * Description: Converts millimeters to rows.
- * Parameters:
- *   mm - The value in millimeters.
- * Returns: The value in rows.
+ * Function:    pdfM2R
+ * Purpose:     Converts millimeters to equivalent row count based on LPI settings.
+ * Parameters:  mm (Numeric) - Value in millimeters.
+ * Returns:     Numeric - Equivalent row count.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfM2R( mm )
 RETURN Int( s_aReport[ LPI ] * mm / 25.4 )
 
 /*
- * Function: pdfM2X
- * Description: Converts millimeters to PDF units.
- * Parameters:
- *   n - The value in millimeters.
- * Returns: The value in PDF units.
+ * Function:    pdfM2X
+ * Purpose:     Converts millimeters to PDF points (1/72 inch).
+ * Parameters:  n (Numeric) - Value in millimeters.
+ * Returns:     Numeric - Equivalent points.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfM2X( n )
 RETURN n * 72 / 25.4
 
 /*
- * Function: pdfM2Y
- * Description: Converts millimeters to PDF units (Y coordinate).
- * Parameters:
- *   n - The value in millimeters.
- * Returns: The value in PDF units.
+ * Function:    pdfM2Y
+ * Purpose:     Converts vertical millimeter position to PDF page Y coordinate (points from page bottom).
+ * Parameters:  n (Numeric) - Value in millimeters from page top.
+ * Returns:     Numeric - Y coordinate in PDF points.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfM2Y( n )
 RETURN s_aReport[ PAGEY ] - n * 72 / 25.4
 
 /*
- * Function: pdfNewLine
- * Description: Moves to a new line in the PDF.
- * Parameters:
- *   n - The number of lines to move.
- * Returns: The new line number.
+ * Function:    pdfNewLine
+ * Purpose:     Advances current vertical line position, performing page break if needed.
+ * Parameters:  n (Numeric) - Number of lines to advance (defaults to 1).
+ * Returns:     Numeric - Updated current report line position.
+ * Side Effects: May trigger pdfNewPage(); updates s_aReport[ REPORTLINE ].
  */
 FUNCTION pdfNewLine( n )
    __defaultNIL( @n, 1 )
@@ -996,16 +1056,16 @@ FUNCTION pdfNewLine( n )
 RETURN s_aReport[ REPORTLINE ]
 
 /*
- * Function: pdfNewPage
- * Description: Creates a new page in the PDF.
- * Parameters:
- *   _cPageSize - The page size.
- *   _cPageOrient - The page orientation.
- *   _nLpi - The lines per inch.
- *   _cFontName - The font name.
- *   _nFontType - The font type.
- *   _nFontSize - The font size.
- * Returns: NIL
+ * Function:    pdfNewPage
+ * Purpose:     Instantiates a new page in the document stream with specified or default geometry/font settings.
+ * Parameters:  _cPageSize   (Character) - Paper size (e.g. "LETTER", "A4").
+ *              _cPageOrient (Character) - Orientation ("P"=Portrait, "L"=Landscape).
+ *              _nLpi        (Numeric)   - Lines per inch setting.
+ *              _cFontName   (Character) - Active font family name.
+ *              _nFontType   (Numeric)   - Font style index.
+ *              _nFontSize   (Numeric)   - Font point size.
+ * Returns:     NIL
+ * Side Effects: Flushes previous page buffer; increments REPORTPAGE; resets PAGEFONTS/PAGEIMAGES.
  */
 FUNCTION pdfNewPage( _cPageSize, _cPageOrient, _nLpi, _cFontName, _nFontType, _nFontSize )
    __defaultNIL( @_cPageSize, s_aReport[ PAGESIZE ] )
@@ -1015,6 +1075,7 @@ FUNCTION pdfNewPage( _cPageSize, _cPageOrient, _nLpi, _cFontName, _nFontType, _n
    __defaultNIL( @_nFontType, pdfGetFontInfo( "TYPE" ) )
    __defaultNIL( @_nFontSize, s_aReport[ FONTSIZE ] )
 
+   // Close and write previous page object if content exists
    IF ! Empty( s_aReport[ PAGEBUFFER ] )
       pdfClosePage()
    ENDIF
@@ -1034,11 +1095,14 @@ FUNCTION pdfNewPage( _cPageSize, _cPageOrient, _nLpi, _cFontName, _nFontType, _n
 RETURN NIL
 
 /*
- * Function: pdfNormal
- * Description: Sets the font to normal.
- * Returns: NIL
+ * Function:    pdfNormal
+ * Purpose:     Selects the Normal (Regular) style variant of the active font family.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Updates FONTNAME, PAGEFONTS, and FONTS in s_aReport.
  */
 FUNCTION pdfNormal()
+   // Map normal font variant index based on active font family name
    IF pdfGetFontInfo( "NAME" ) == "Times"
       s_aReport[ FONTNAME ] := 1
    ELSEIF pdfGetFontInfo( "NAME" ) == "Helvetica"
@@ -1054,21 +1118,23 @@ FUNCTION pdfNormal()
 RETURN NIL
 
 /*
- * Function: pdfOpen
- * Description: Opens a new PDF document.
- * Parameters:
- *   cFile - The file name.
- *   nLen - The report width.
- *   lOptimize - Whether to optimize the PDF.
- * Returns: NIL
+ * Function:    pdfOpen
+ * Purpose:     Creates a new PDF output file and initializes the document environment and metric tables.
+ * Parameters:  cFile     (Character) - Target PDF file path to create.
+ *              nLen      (Numeric)   - Virtual column grid width (default 200).
+ *              lOptimize (Logical)   - Enable output stream optimization.
+ * Returns:     NIL
+ * Side Effects: Creates physical file on disk; initializes s_aReport structure elements.
  */
 FUNCTION pdfOpen( cFile, nLen, lOptimize )
 
    LOCAL cTemp, nI, nJ, n1, n2 := 896, n12
 
+   // Apply default parameter settings
    __defaultNIL( @nLen, 200 )
    __defaultNIL( @lOptimize, .F. )
 
+   // Initialize report state variables
    s_aReport[ FONTNAME ] := 1
    s_aReport[ FONTSIZE ] := 10
    s_aReport[ LPI ] := 6
@@ -1101,6 +1167,7 @@ FUNCTION pdfOpen( cFile, nLen, lOptimize )
    s_aReport[ PAGEIMAGES ] := {}
    s_aReport[ PAGEFONTS ] := {}
 
+   // Unpack binary font character width metric tables
    cTemp := vpdf_FontsDat()
    n1 := Len( cTemp ) / ( 2 * n2 )
    s_aReport[ FONTWIDTH ] := Array( n1, n2 )
@@ -1113,6 +1180,7 @@ FUNCTION pdfOpen( cFile, nLen, lOptimize )
       NEXT
    NEXT
 
+   // Write PDF magic header string to file handle
    s_aReport[ DOCLEN ] := 0
    cTemp := "%PDF-1.3" + CRLF
    s_aReport[ DOCLEN ] += Len( cTemp )
@@ -1121,18 +1189,19 @@ FUNCTION pdfOpen( cFile, nLen, lOptimize )
 RETURN NIL
 
 /*
- * Function: pdfPageSize
- * Description: Sets the page size.
- * Parameters:
- *   _cPageSize - The page size.
- *   _nWidth - The width.
- *   _nHeight - The height.
- * Returns: NIL
+ * Function:    pdfPageSize
+ * Purpose:     Sets page dimensions based on standard paper names or explicit width/height dimensions.
+ * Parameters:  _cPageSize (Character) - Paper size name (e.g., "LETTER", "A4", "LEGAL").
+ *              _nWidth    (Numeric)   - Custom width dimension.
+ *              _nHeight   (Numeric)   - Custom height dimension.
+ * Returns:     NIL
+ * Side Effects: Updates PAGESIZE, PAGEX, and PAGEY elements in s_aReport.
  */
 FUNCTION pdfPageSize( _cPageSize, _nWidth, _nHeight )
 
    LOCAL nSize, aSize, nWidth, nHeight
 
+   // Standard paper dimension table (Name, Width Inches, Height Inches)
    aSize := { ;
       { "LETTER", 8.50, 11.00 }, ;
       { "LEGAL", 8.50, 14.00 }, ;
@@ -1153,6 +1222,7 @@ FUNCTION pdfPageSize( _cPageSize, _nWidth, _nHeight )
 
    __defaultNIL( @_cPageSize, "LETTER" )
 
+   // Match paper standard name or locate closest match by custom dimensions
    IF Empty( _nWidth ) .OR. Empty( _nHeight )
       nSize := AScan( aSize, {| arr | arr[ 1 ] == _cPageSize } )
       IF nSize == 0
@@ -1176,6 +1246,7 @@ FUNCTION pdfPageSize( _cPageSize, _nWidth, _nHeight )
       nHeight := _nHeight
    ENDIF
 
+   // Calculate page boundary points based on orientation
    IF s_aReport[ PAGEORIENT ] == "P"
       s_aReport[ PAGEX ] := nWidth * 72
       s_aReport[ PAGEY ] := nHeight * 72
@@ -1187,11 +1258,11 @@ FUNCTION pdfPageSize( _cPageSize, _nWidth, _nHeight )
 RETURN NIL
 
 /*
- * Function: pdfPageOrient
- * Description: Sets the page orientation.
- * Parameters:
- *   _cPageOrient - The page orientation.
- * Returns: NIL
+ * Function:    pdfPageOrient
+ * Purpose:     Sets page orientation ("P" for Portrait, "L" for Landscape).
+ * Parameters:  _cPageOrient (Character) - Orientation code ("P" or "L").
+ * Returns:     NIL
+ * Side Effects: Updates PAGEORIENT in s_aReport and recalculates page size.
  */
 FUNCTION pdfPageOrient( _cPageOrient )
    __defaultNIL( @_cPageOrient, "P" )
@@ -1201,31 +1272,31 @@ FUNCTION pdfPageOrient( _cPageOrient )
 RETURN NIL
 
 /*
- * Function: pdfR2D
- * Description: Converts rows to PDF units (Y coordinate).
- * Parameters:
- *   nRow - The row number.
- * Returns: The value in PDF units.
+ * Function:    pdfR2D
+ * Purpose:     Converts row number to PDF Y coordinate points.
+ * Parameters:  nRow (Numeric) - Row number.
+ * Returns:     Numeric - Y coordinate position in PDF points.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfR2D( nRow )
 RETURN s_aReport[ PAGEY ] - nRow * 72 / s_aReport[ LPI ]
 
 /*
- * Function: pdfR2M
- * Description: Converts rows to millimeters.
- * Parameters:
- *   nRow - The row number.
- * Returns: The value in millimeters.
+ * Function:    pdfR2M
+ * Purpose:     Converts row number to millimeter position.
+ * Parameters:  nRow (Numeric) - Row number.
+ * Returns:     Numeric - Millimeter position.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfR2M( nRow )
 RETURN 25.4 * nRow / s_aReport[ LPI ]
 
 /*
- * Function: pdfPageNumber
- * Description: Gets or sets the page number.
- * Parameters:
- *   n - The page number to set.
- * Returns: The current page number.
+ * Function:    pdfPageNumber
+ * Purpose:     Gets or sets current document page number counter.
+ * Parameters:  n (Numeric) - Page number to set (optional).
+ * Returns:     Numeric - Active page number count.
+ * Side Effects: May update REPORTPAGE element in s_aReport if n > 0.
  */
 FUNCTION pdfPageNumber( n )
    __defaultNIL( @n, 0 )
@@ -1236,44 +1307,47 @@ FUNCTION pdfPageNumber( n )
 RETURN s_aReport[ REPORTPAGE ]
 
 /*
- * Function: pdfReverse
- * Description: Reverses the text color.
- * Parameters:
- *   cString - The string to reverse.
- * Returns: The reversed string.
+ * Function:    pdfReverse
+ * Purpose:     Appends reverse video formatting control character to a string.
+ * Parameters:  cString (Character) - Base string.
+ * Returns:     Character - String with appended Chr(255) control character.
+ * Side Effects: None
  */
 FUNCTION pdfReverse( cString )
 RETURN cString + Chr( 255 )
 
 /*
- * Function: pdfRJust
- * Description: Right-justifies a string at a specific position in the PDF.
- * Parameters:
- *   cString - The string to right-justify.
- *   nRow - The row position.
- *   nCol - The column position.
- *   cUnits - The units for the position.
- *   lExact - Whether to use exact positioning.
- *   cId - An identifier for the string.
- * Returns: NIL
+ * Function:    pdfRJust
+ * Purpose:     Displays text right-justified at a specified target column.
+ * Parameters:  cString (Character) - Text string to render.
+ *              nRow    (Numeric)   - Row position.
+ *              nCol    (Numeric)   - Target column for right boundary alignment.
+ *              cUnits  (Character) - Units identifier ("R"=Rows, "M"=Millimeters).
+ *              lExact  (Logical)   - If .T., suppresses auto line height check.
+ *              cId     (Character) - Header identifier if in header editing mode.
+ * Returns:     NIL
+ * Side Effects: Calls pdfAtSay to output string; updates current line position.
  */
 FUNCTION pdfRJust( cString, nRow, nCol, cUnits, lExact, cId )
 
    LOCAL nLen, nAdj := 1.0, nAt
 
+   // Apply defaults to parameters
    __defaultNIL( @nRow, s_aReport[ REPORTLINE ] )
    __defaultNIL( @cUnits, "R" )
    __defaultNIL( @lExact, .F. )
 
+   // Intercept call if editing header template
    IF s_aReport[ HEADEREDIT ]
       RETURN pdfHeader( "PDFRJUST", cId, { cString, nRow, nCol, cUnits, lExact } )
    ENDIF
 
-   // Replace page number placeholder with actual page number
+   // Substitute page number macro tag if present
    IF ( nAt := At( "#pagenumber#", cString ) ) > 0
       cString := Left( cString, nAt - 1 ) + hb_ntos( pdfPageNumber() ) + SubStr( cString, nAt + 12 )
    ENDIF
 
+   // Calculate rendered string width
    nLen := pdfLen( cString )
 
    IF cUnits == "R"
@@ -1283,19 +1357,20 @@ FUNCTION pdfRJust( cString, nRow, nCol, cUnits, lExact, cId )
       ENDIF
    ENDIF
 
+   // Render text using offset column calculated for right alignment
    pdfAtSay( cString, pdfR2M( nRow ), iif( cUnits == "R", s_aReport[ PDFLEFT ] + ( s_aReport[ PAGEX ] / 72 * 25.4 - 2 * s_aReport[ PDFLEFT ] ) * nCol / s_aReport[ REPORTWIDTH ] - nAdj, nCol ) - nLen, "M", lExact )
 
 RETURN NIL
 
 /*
- * Function: pdfSetFont
- * Description: Sets the font.
- * Parameters:
- *   _cFont - The font name.
- *   _nType - The font type.
- *   _nSize - The font size.
- *   cId - An identifier for the font.
- * Returns: NIL
+ * Function:    pdfSetFont
+ * Purpose:     Sets the active font family, style variant, and point size.
+ * Parameters:  _cFont (Character) - Font family name ("Times", "Helvetica", "Courier").
+ *              _nType (Numeric)   - Style variant index (0=Normal, 1=Bold, 2=Italic, 3=BoldItalic).
+ *              _nSize (Numeric)   - Font point size (default 10).
+ *              cId    (Character) - Identifier if editing header.
+ * Returns:     NIL
+ * Side Effects: Updates FONTSIZE, FONTNAME, PAGEFONTS, and FONTS in s_aReport.
  */
 FUNCTION pdfSetFont( _cFont, _nType, _nSize, cId )
 
@@ -1303,6 +1378,7 @@ FUNCTION pdfSetFont( _cFont, _nType, _nSize, cId )
    __defaultNIL( @_nType, 0 )
    __defaultNIL( @_nSize, 10 )
 
+   // Intercept call if editing header template
    IF s_aReport[ HEADEREDIT ]
       RETURN pdfHeader( "PDFSETFONT", cId, { _cFont, _nType, _nSize } )
    ENDIF
@@ -1310,6 +1386,7 @@ FUNCTION pdfSetFont( _cFont, _nType, _nSize, cId )
    _cFont := Upper( _cFont )
    s_aReport[ FONTSIZE ] := _nSize
 
+   // Calculate font index in Type1 font array
    IF _cFont == "TIMES"
       s_aReport[ FONTNAME ] := _nType + 1
    ELSEIF _cFont == "HELVETICA"
@@ -1326,11 +1403,11 @@ FUNCTION pdfSetFont( _cFont, _nType, _nSize, cId )
 RETURN NIL
 
 /*
- * Function: pdfSetLPI
- * Description: Sets the lines per inch.
- * Parameters:
- *   _nLpi - The lines per inch.
- * Returns: NIL
+ * Function:    pdfSetLPI
+ * Purpose:     Sets document lines-per-inch (LPI) vertical pitch density.
+ * Parameters:  _nLpi (Numeric) - LPI value (1, 2, 3, 4, 6, 8, 12, 16, 24, 48).
+ * Returns:     NIL
+ * Side Effects: Updates LPI in s_aReport and recalculates page bounds.
  */
 FUNCTION pdfSetLPI( _nLpi )
 
@@ -1345,11 +1422,11 @@ FUNCTION pdfSetLPI( _nLpi )
 RETURN NIL
 
 /*
- * Function: pdfStringB
- * Description: Escapes special characters in a string.
- * Parameters:
- *   cString - The string to escape.
- * Returns: The escaped string.
+ * Function:    pdfStringB
+ * Purpose:     Escapes reserved PDF syntax characters (parentheses) in strings.
+ * Parameters:  cString (Character) - Raw input string.
+ * Returns:     Character - String with escaped parentheses.
+ * Side Effects: None
  */
 FUNCTION pdfStringB( cString )
    cString := StrTran( cString, "(", "\(" )
@@ -1358,35 +1435,35 @@ FUNCTION pdfStringB( cString )
 RETURN cString
 
 /*
- * Function: pdfTextCount
- * Description: Counts the number of lines a text will occupy.
- * Parameters:
- *   cString - The text to count.
- *   nTop - The top position.
- *   nLeft - The left position.
- *   nLength - The length of the text.
- *   nTab - The tab size.
- *   nJustify - The justification.
- *   cUnits - The units for the position.
- * Returns: The number of lines.
+ * Function:    pdfTextCount
+ * Purpose:     Calculates line count required to display formatted paragraph text without outputting it.
+ * Parameters:  cString  (Character) - Text string.
+ *              nTop     (Numeric)   - Top position.
+ *              nLeft    (Numeric)   - Left position.
+ *              nLength  (Numeric)   - Line width limit.
+ *              nTab     (Numeric)   - First line indent spaces count.
+ *              nJustify (Numeric)   - Justification mode (1=Left, 2=Center, 3=Right, 4=Full).
+ *              cUnits   (Character) - Units identifier ("R" or "M").
+ * Returns:     Numeric - Total line count required for text block.
+ * Side Effects: None
  */
 FUNCTION pdfTextCount( cString, nTop, nLeft, nLength, nTab, nJustify, cUnits )
 RETURN pdfText( cString, nTop, nLeft, nLength, nTab, nJustify, cUnits, .F. )
 
 /*
- * Function: pdfText
- * Description: Places text in the PDF.
- * Parameters:
- *   cString - The text to place.
- *   nTop - The top position.
- *   nLeft - The left position.
- *   nLength - The length of the text.
- *   nTab - The tab size.
- *   nJustify - The justification.
- *   cUnits - The units for the position.
- *   cColor - The color of the text.
- *   lPrint - Whether to print the text.
- * Returns: The number of lines.
+ * Function:    pdfText
+ * Purpose:     Formats and renders a multi-line paragraph block with optional word wrap and justification.
+ * Parameters:  cString  (Character) - Text content to format and render.
+ *              nTop     (Numeric)   - Starting top line/coordinate.
+ *              nLeft    (Numeric)   - Left column/coordinate.
+ *              nLength  (Numeric)   - Maximum line length width.
+ *              nTab     (Numeric)   - First line paragraph indent tab count (-1 = no indent).
+ *              nJustify (Numeric)   - Alignment (1=Left, 2=Center, 3=Right, 4=Full; default 4).
+ *              cUnits   (Character) - Positioning units ("R"=Rows, "M"=Millimeters).
+ *              cColor   (Character) - RGB color prefix string.
+ *              lPrint   (Logical)   - Output flag (.T. = print text, .F. = measure only).
+ * Returns:     Numeric - Number of rendered output lines.
+ * Side Effects: Appends formatted text streams to s_aReport[ PAGEBUFFER ] if lPrint is .T.
  */
 FUNCTION pdfText( cString, nTop, nLeft, nLength, nTab, nJustify, cUnits, cColor, lPrint )
 
@@ -1394,12 +1471,14 @@ FUNCTION pdfText( cString, nTop, nLeft, nLength, nTab, nJustify, cUnits, cColor,
    LOCAL nI, cTemp, cToken, k, nL, nRow, nLines, nLineLen, nStart
    LOCAL lParagraph, nSpace, nNew, nTokenLen, nCRLF, nTokens, nLen
 
+   // Apply parameter defaults
    __defaultNIL( @nTab, - 1 )
    __defaultNIL( @cUnits, "R" )
-   __defaultNIL( @nJustify, 4 ) // justify
+   __defaultNIL( @nJustify, 4 ) // Default to full justification
    __defaultNIL( @lPrint, .T. )
    __defaultNIL( @cColor, "" )
 
+   // Convert vertical/horizontal offsets based on units
    IF cUnits == "M"
       nTop := pdfM2R( nTop )
    ELSEIF cUnits == "R"
@@ -1417,6 +1496,7 @@ FUNCTION pdfText( cString, nTop, nLeft, nLength, nTab, nJustify, cUnits, cColor,
    nTokens := NumToken( cString, cDelim )
    nStart := 1
 
+   // Adjust starting horizontal position based on justification mode
    IF nJustify == 1 .OR. nJustify == 4
       nLeft := nLeft
    ELSEIF nJustify == 2
@@ -1429,13 +1509,14 @@ FUNCTION pdfText( cString, nTop, nLeft, nLength, nTab, nJustify, cUnits, cColor,
    lParagraph := .T.
    nI := 1
 
+   // Tokenize string and wrap words into lines based on width limits
    WHILE nI <= nTokens
       cToken := Token( cString, cDelim, nI )
       nTokenLen := pdfLen( cToken )
       nLen := Len( cToken )
 
       IF nLineLen + nSpace + nTokenLen > nLength
-         IF nStart == nI // single word > nLength
+         IF nStart == nI // Handle oversized single token exceeding line length limit
             k := 1
             WHILE k <= nLen
                cTemp := ""
@@ -1494,24 +1575,24 @@ FUNCTION pdfText( cString, nTop, nLeft, nLength, nTab, nJustify, cUnits, cColor,
 RETURN nLines
 
 /*
- * Function: pdfTextPrint
- * Description: Prints a line of text.
- * Parameters:
- *   nI - The token index.
- *   nLeft - The left position.
- *   lParagraph - Whether it's a new paragraph.
- *   nJustify - The justification.
- *   nSpace - The space width.
- *   nNew - The new paragraph indent.
- *   nLength - The line length.
- *   nLineLen - The current line length.
- *   nLines - The number of lines.
- *   nStart - The start token index.
- *   cString - The text string.
- *   cDelim - The delimiter.
- *   cColor - The color of the text.
- *   lPrint - Whether to print the text.
- * Returns: NIL
+ * Function:    pdfTextPrint
+ * Purpose:     Helper routine to print a single wrapped line of tokens with alignment spacing.
+ * Parameters:  nI         (Numeric)   - End token index for current line.
+ *              nLeft      (Numeric)   - Base left coordinate.
+ *              lParagraph (Logical)   - Paragraph start flag (passed by reference).
+ *              nJustify   (Numeric)   - Justification mode code.
+ *              nSpace     (Numeric)   - Space character width.
+ *              nNew       (Numeric)   - Indent tab space count.
+ *              nLength    (Numeric)   - Maximum allowed line length.
+ *              nLineLen   (Numeric)   - Calculated line length (passed by reference).
+ *              nLines     (Numeric)   - Rendered line counter (passed by reference).
+ *              nStart     (Numeric)   - Start token index for current line (passed by reference).
+ *              cString    (Character) - Full source text string.
+ *              cDelim     (Character) - Word delimiter character set.
+ *              cColor     (Character) - Color specification string.
+ *              lPrint     (Logical)   - Print execution flag.
+ * Returns:     NIL
+ * Side Effects: Outputs text via pdfAtSay; advances line counters.
  */
 STATIC FUNCTION pdfTextPrint( nI, nLeft, lParagraph, nJustify, nSpace, nNew, nLength, nLineLen, nLines, nStart, cString, cDelim, cColor, lPrint )
 
@@ -1534,9 +1615,11 @@ STATIC FUNCTION pdfTextPrint( nI, nLeft, lParagraph, nJustify, nSpace, nNew, nLe
       nRow := pdfNewLine( 1 )
    ENDIF
    nB := nSpace
+   // Compute inter-word padding space for full justification mode
    IF nJustify == 4
       nB := ( nLength - nLineLen + ( nFinish - nStart ) * nSpace ) / ( nFinish - nStart )
    ENDIF
+   // Render each token on the active line
    FOR nJ := nStart TO nFinish
       cToken := Token( cString, cDelim, nJ )
       IF lPrint
@@ -1552,19 +1635,19 @@ STATIC FUNCTION pdfTextPrint( nI, nLeft, lParagraph, nJustify, nSpace, nNew, nLe
 RETURN NIL
 
 /*
- * Function: pdfTextNextPara
- * Description: Checks if the next token is a new paragraph.
- * Parameters:
- *   cString - The text string.
- *   cDelim - The delimiter.
- *   nI - The token index.
- * Returns: The number of new paragraphs.
+ * Function:    pdfTextNextPara
+ * Purpose:     Determines if subsequent text tokens start a new paragraph (contain line break characters).
+ * Parameters:  cString (Character) - Text string.
+ *              cDelim  (Character) - Token delimiter set.
+ *              nI      (Numeric)   - Current token index.
+ * Returns:     Numeric - Count of newline occurrences between current and next token.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfTextNextPara( cString, cDelim, nI )
 
    LOCAL nAt, cAt, nCRLF, nNew, nRat, nRet := 0
 
-   // check if next spaces paragraph(s)
+   // Inspect whitespace gap between tokens for embedded carriage return/line feed bytes
    nAt := AtToken( cString, cDelim, nI ) + Len( Token( cString, cDelim, nI ) )
    cAt := SubStr( cString, nAt, AtToken( cString, cDelim, nI + 1 ) - nAt )
    nCRLF := NumAt( Chr( 13 ) + Chr( 10 ), cAt )
@@ -1577,31 +1660,31 @@ STATIC FUNCTION pdfTextNextPara( cString, cDelim, nI )
 RETURN nRet
 
 /*
- * Function: pdfUnderline
- * Description: Underlines a string.
- * Parameters:
- *   cString - The string to underline.
- * Returns: The underlined string.
+ * Function:    pdfUnderline
+ * Purpose:     Appends underline control character to a text string.
+ * Parameters:  cString (Character) - Input text string.
+ * Returns:     Character - String with appended Chr(254) underline flag.
+ * Side Effects: None
  */
 FUNCTION pdfUnderline( cString )
 RETURN cString + Chr( 254 )
 
 /*
- * Function: pdfX2M
- * Description: Converts PDF units to millimeters.
- * Parameters:
- *   n - The value in PDF units.
- * Returns: The value in millimeters.
+ * Function:    pdfX2M
+ * Purpose:     Converts PDF points (1/72 inch) to millimeters.
+ * Parameters:  n (Numeric) - Value in points.
+ * Returns:     Numeric - Equivalent value in millimeters.
+ * Side Effects: None
  */
 STATIC FUNCTION pdfX2M( n )
 RETURN n * 25.4 / 72
 
 /*
- * Function: TimeAsAMPM
- * Description: Converts time to AM/PM format.
- * Parameters:
- *   cTime - The time to convert.
- * Returns: The time in AM/PM format.
+ * Function:    TimeAsAMPM
+ * Purpose:     Converts a 24-hour time string ("HH:MM:SS") to 12-hour AM/PM format.
+ * Parameters:  cTime (Character) - 24-hour time string.
+ * Returns:     Character - Formatted 12-hour AM/PM time string.
+ * Side Effects: None
  */
 STATIC FUNCTION TimeAsAMPM( cTime )
    IF Val( cTime ) < 12
@@ -1616,11 +1699,11 @@ STATIC FUNCTION TimeAsAMPM( cTime )
 RETURN cTime
 
 /*
- * Function: pdfOpenHeader
- * Description: Opens a header file.
- * Parameters:
- *   cFile - The header file.
- * Returns: NIL
+ * Function:    pdfOpenHeader
+ * Purpose:     Loads page header definition template entries from an array file.
+ * Parameters:  cFile (Character) - Header file path.
+ * Returns:     NIL
+ * Side Effects: Populates s_aReport[ HEADER ] array; sets s_aReport[ MARGINS ] to .T.
  */
 FUNCTION pdfOpenHeader( cFile )
 
@@ -1628,6 +1711,7 @@ FUNCTION pdfOpenHeader( cFile )
    __defaultNIL( @cFile, "" )
    IF ! Empty( cFile )
       cFile := AllTrim( cFile )
+      // Copy to temporary 8.3 filename if long filename or space present
       IF Len( cFile ) > 12 .OR. ;
             At( " ", cFile ) > 0 .OR. ;
             ( At( " ", cFile ) == 0 .AND. Len( cFile ) > 8 ) .OR. ;
@@ -1644,9 +1728,11 @@ FUNCTION pdfOpenHeader( cFile )
 RETURN NIL
 
 /*
- * Function: pdfEditOnHeader
- * Description: Enables header editing.
- * Returns: NIL
+ * Function:    pdfEditOnHeader
+ * Purpose:     Enables header template editing mode (intercepts graphics calls into header array).
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Sets HEADEREDIT and MARGINS elements in s_aReport to .T.
  */
 FUNCTION pdfEditOnHeader()
    s_aReport[ HEADEREDIT ] := .T.
@@ -1655,9 +1741,11 @@ FUNCTION pdfEditOnHeader()
 RETURN NIL
 
 /*
- * Function: pdfEditOffHeader
- * Description: Disables header editing.
- * Returns: NIL
+ * Function:    pdfEditOffHeader
+ * Purpose:     Disables header template editing mode.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Sets HEADEREDIT to .F. and MARGINS to .T. in s_aReport.
  */
 FUNCTION pdfEditOffHeader()
    s_aReport[ HEADEREDIT ] := .F.
@@ -1666,9 +1754,11 @@ FUNCTION pdfEditOffHeader()
 RETURN NIL
 
 /*
- * Function: pdfCloseHeader
- * Description: Closes the header.
- * Returns: NIL
+ * Function:    pdfCloseHeader
+ * Purpose:     Clears current header template definitions.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Resets s_aReport[ HEADER ] to empty array and s_aReport[ MARGINS ] to .F.
  */
 FUNCTION pdfCloseHeader()
    s_aReport[ HEADER ] := {}
@@ -1677,11 +1767,11 @@ FUNCTION pdfCloseHeader()
 RETURN NIL
 
 /*
- * Function: pdfDeleteHeader
- * Description: Deletes a header.
- * Parameters:
- *   cId - The header identifier.
- * Returns: The number of headers remaining.
+ * Function:    pdfDeleteHeader
+ * Purpose:     Removes a specific header element by identifier from the template array.
+ * Parameters:  cId (Character) - Identifier tag of header element to remove.
+ * Returns:     Numeric - Number of remaining header elements, or -1 if ID not found.
+ * Side Effects: Modifies s_aReport[ HEADER ] array; sets MARGINS to .T.
  */
 FUNCTION pdfDeleteHeader( cId )
 
@@ -1698,11 +1788,11 @@ FUNCTION pdfDeleteHeader( cId )
 RETURN nRet
 
 /*
- * Function: pdfEnableHeader
- * Description: Enables a header.
- * Parameters:
- *   cId - The header identifier.
- * Returns: NIL
+ * Function:    pdfEnableHeader
+ * Purpose:     Enables rendering of a specific identified header element.
+ * Parameters:  cId (Character) - Identifier tag of header item.
+ * Returns:     NIL
+ * Side Effects: Updates element flag in s_aReport[ HEADER ]; sets MARGINS to .T.
  */
 FUNCTION pdfEnableHeader( cId )
 
@@ -1717,11 +1807,11 @@ FUNCTION pdfEnableHeader( cId )
 RETURN NIL
 
 /*
- * Function: pdfDisableHeader
- * Description: Disables a header.
- * Parameters:
- *   cId - The header identifier.
- * Returns: NIL
+ * Function:    pdfDisableHeader
+ * Purpose:     Disables rendering of a specific identified header element.
+ * Parameters:  cId (Character) - Identifier tag of header item.
+ * Returns:     NIL
+ * Side Effects: Updates element flag in s_aReport[ HEADER ]; sets MARGINS to .T.
  */
 FUNCTION pdfDisableHeader( cId )
 
@@ -1736,11 +1826,11 @@ FUNCTION pdfDisableHeader( cId )
 RETURN NIL
 
 /*
- * Function: pdfSaveHeader
- * Description: Saves the header to a file.
- * Parameters:
- *   cFile - The file to save to.
- * Returns: NIL
+ * Function:    pdfSaveHeader
+ * Purpose:     Saves active header template definitions to a disk file.
+ * Parameters:  cFile (Character) - Output filename.
+ * Returns:     NIL
+ * Side Effects: Writes header array to disk file.
  */
 FUNCTION pdfSaveHeader( cFile )
    Array2File( "temp.tmp", s_aReport[ HEADER ] )
@@ -1749,13 +1839,13 @@ FUNCTION pdfSaveHeader( cFile )
 RETURN NIL
 
 /*
- * Function: pdfHeader
- * Description: Adds a header to the PDF.
- * Parameters:
- *   cFunction - The function name.
- *   cId - The header identifier.
- *   arr - The header data.
- * Returns: The header identifier.
+ * Function:    pdfHeader
+ * Purpose:     Appends or updates a drawing command item in the header template structure.
+ * Parameters:  cFunction (Character) - Drawing function name ("PDFATSAY", "PDFBOX", etc.).
+ *              cId       (Character) - Item unique identifier string.
+ *              arr       (Array)     - Parameter array for the drawing command.
+ * Returns:     Character - Resolved unique item identifier cId.
+ * Side Effects: Appends or updates array element in s_aReport[ HEADER ].
  */
 FUNCTION pdfHeader( cFunction, cId, arr )
 
@@ -1765,6 +1855,7 @@ FUNCTION pdfHeader( cFunction, cId, arr )
       cId := Upper( cId )
       nId := AScan( s_aReport[ HEADER ], {| arr | arr[ 3 ] == cId } )
    ENDIF
+   // Generate auto-incremented item ID if ID parameter is empty
    IF nId == 0
       nLen := Len( s_aReport[ HEADER ] )
       IF Empty( cId )
@@ -1795,9 +1886,11 @@ FUNCTION pdfHeader( cFunction, cId, arr )
 RETURN cId
 
 /*
- * Function: pdfDrawHeader
- * Description: Draws the header on the PDF.
- * Returns: NIL
+ * Function:    pdfDrawHeader
+ * Purpose:     Renders all active header template elements on the top of a newly created page.
+ * Parameters:  None
+ * Returns:     NIL
+ * Side Effects: Re-executes header drawing routines; restores font state; recalculates margins.
  */
 FUNCTION pdfDrawHeader()
 
@@ -1806,6 +1899,7 @@ FUNCTION pdfDrawHeader()
    IF nLen > 0
       _nFont := s_aReport[ FONTNAME ]
       _nSize := s_aReport[ FONTSIZE ]
+      // Execute each enabled drawing command in header template table
       FOR nI := 1 TO nLen
          IF s_aReport[ HEADER ][ nI ][ 1 ]
             DO CASE
@@ -1841,26 +1935,28 @@ FUNCTION pdfDrawHeader()
 RETURN NIL
 
 /*
- * Function: pdfMargins
- * Description: Sets the margins for the PDF.
- * Parameters:
- *   nTop - The top margin.
- *   nLeft - The left margin.
- *   nBottom - The bottom margin.
- * Returns: NIL
+ * Function:    pdfMargins
+ * Purpose:     Calculates dynamic printable page top/left/bottom margin bounds based on header element placement.
+ * Parameters:  nTop    (Numeric) - Initial top margin limit.
+ *              nLeft   (Numeric) - Initial left margin limit.
+ *              nBottom (Numeric) - Initial bottom margin limit.
+ * Returns:     NIL
+ * Side Effects: Updates PDFTOP, PDFLEFT, and PDFBOTTOM elements in s_aReport; sets MARGINS to .F.
  */
 FUNCTION pdfMargins( nTop, nLeft, nBottom )
 
    LOCAL nI, nLen := Len( s_aReport[ HEADER ] ), nTemp, aTemp, nHeight
 
+   // Default margin boundaries based on letter paper at 6 LPI
    __defaultNIL( @nTop, 1 )
    __defaultNIL( @nLeft, 10 )
-   __defaultNIL( @nBottom, s_aReport[ PAGEY ] / 72 * s_aReport[ LPI ] - 1 )  // bottom, default "LETTER", "P", 6
+   __defaultNIL( @nBottom, s_aReport[ PAGEY ] / 72 * s_aReport[ LPI ] - 1 )  // default bottom boundary
 
    s_aReport[ PDFTOP ] := nTop
    s_aReport[ PDFLEFT ] := nLeft
    s_aReport[ PDFBOTTOM ] := nBottom
 
+   // Adjust margin bounds based on spatial extent of active header commands
    FOR nI := 1 TO nLen
       IF s_aReport[ HEADER ][ nI ][ 1 ]
          IF s_aReport[ HEADER ][ nI ][ 2 ] == "PDFSETFONT"
@@ -1996,18 +2092,19 @@ FUNCTION pdfMargins( nTop, nLeft, nBottom )
 RETURN NIL
 
 /*
- * Function: pdfCreateHeader
- * Description: Creates a header for the PDF.
- * Parameters:
- *   _file - The file to save the header to.
- *   _size - The page size.
- *   _orient - The page orientation.
- *   _lpi - The lines per inch.
- *   _width - The report width.
- * Returns: NIL
+ * Function:    pdfCreateHeader
+ * Purpose:     Builds a pre-styled template header (with decorative boxes, title lines, and timestamp/page macros) and saves it to file.
+ * Parameters:  _file   (Character) - File path to save header template.
+ *              _size   (Character) - Page size ("LETTER", "LEGAL").
+ *              _orient (Character) - Orientation ("P" or "L").
+ *              _lpi    (Numeric)   - Lines per inch (6 or 8).
+ *              _width  (Numeric)   - Virtual column width.
+ * Returns:     NIL
+ * Side Effects: Saves array structure to disk via pdfSaveHeader().
  */
 FUNCTION pdfCreateHeader( _file, _size, _orient, _lpi, _width )
 
+   // Pre-configured style positioning matrix based on paper, orientation, and LPI
    LOCAL s_aReportStyle := { ;
       { 1, 2, 3, 4, 5, 6 }, ;
       { 2.475, 4.0, 4.9, 6.4, 7.5, 64.0 }, ;
@@ -2023,6 +2120,7 @@ FUNCTION pdfCreateHeader( _file, _size, _orient, _lpi, _width )
    __defaultNIL( @_lpi, s_aReport[ LPI ] )
    __defaultNIL( @_WIDTH, 200 )
 
+   // Select style layout index matching paper size and pitch configuration
    IF _size == "LETTER"
       IF _orient == "P"
          IF _lpi == 6
@@ -2058,6 +2156,7 @@ FUNCTION pdfCreateHeader( _file, _size, _orient, _lpi, _width )
       nAdd := 76.2
    ENDIF
 
+   // Construct header frame boxes based on orientation
    IF _orient == "P"
       pdfBox( 5.0, 5.0, 274.0 + nAdd, 210.0, 1.0 )
       pdfBox( 6.5, 6.5, 272.5 + nAdd, 208.5, 0.5 )
@@ -2072,6 +2171,7 @@ FUNCTION pdfCreateHeader( _file, _size, _orient, _lpi, _width )
       pdfBox( 34.5, 9.5, 203.5, 269.5 + nAdd, 0.5 )
    ENDIF
 
+   // Add default text items and dynamic macro tags
    pdfSetFont( "Helvetica", BOLD, 10 )
    pdfAtSay( "Test Line 1", s_aReportStyle[ nStyle ][ 1 ], 1, "R", .T. )
    pdfSetFont( "Times", BOLD, 18 )
@@ -2091,16 +2191,17 @@ FUNCTION pdfCreateHeader( _file, _size, _orient, _lpi, _width )
 RETURN NIL
 
 /*
- * Function: pdfImageInfo
- * Description: Gets information about an image.
- * Parameters:
- *   cFile - The image file.
- * Returns: An array with image information.
+ * Function:    pdfImageInfo
+ * Purpose:     Extracts image dimensions, resolution, and bit depth metadata by analyzing image file header tags.
+ * Parameters:  cFile (Character) - Image file path.
+ * Returns:     Array - Image metadata array { Width, Height, XRes, YRes, Bits, StreamOffset, StreamLength, ColorSpace }.
+ * Side Effects: Opens image file on disk.
  */
 FUNCTION pdfImageInfo( cFile )
 
    LOCAL cTemp := Upper( SubStr( cFile, RAt( ".", cFile ) + 1 ) ), aTemp := {}
 
+   // Route to extension-specific image parser
    DO CASE
    CASE cTemp == "TIF"
       aTemp := pdfTIFFInfo( cFile )
@@ -2111,11 +2212,11 @@ FUNCTION pdfImageInfo( cFile )
 RETURN aTemp
 
 /*
- * Function: pdfTIFFInfo
- * Description: Gets information about a TIFF image.
- * Parameters:
- *   cFile - The TIFF file.
- * Returns: An array with TIFF information.
+ * Function:    pdfTIFFInfo
+ * Purpose:     Parses Tagged Image File Format (TIFF) headers to extract image tags.
+ * Parameters:  cFile (Character) - TIFF file path.
+ * Returns:     Array - Metadata array { Width, Height, XRes, YRes, Bits, StreamOffset, StreamLength, ColorSpace }.
+ * Side Effects: Reads file directly from disk.
  */
 FUNCTION pdfTIFFInfo( cFile )
 
@@ -2133,6 +2234,7 @@ FUNCTION pdfTIFFInfo( cFile )
    FRead( nHandle, @cIFDNext, 4 )
    cTemp := Space( 12 )
 
+   // Parse Image File Directory (IFD) tag structures
    WHILE !( cIFDNext == c40 )
       nIFD := Bin2L( cIFDNext )
       FSeek( nHandle, nIFD )
@@ -2145,6 +2247,7 @@ FUNCTION pdfTIFFInfo( cFile )
          nCount := Bin2L( SubStr( cTemp, 5, 4 ) )
          nOffset := Bin2L( SubStr( cTemp, 9, 4 ) )
 
+         // Retrieve tag value array if stored at external offset
          IF nCount > 1 .OR. nFieldType == RATIONAL .OR. nFieldType == SRATIONAL
             nPos := filepos( nHandle )
             FSeek( nHandle, nOffset )
@@ -2160,50 +2263,51 @@ FUNCTION pdfTIFFInfo( cFile )
             --nCount
          ENDIF
 
+         // Extract relevant metadata tags
          DO CASE
-         CASE nTag == 256
+         CASE nTag == 256 // ImageWidth tag
             IF nFieldType == SHORT
                nWidth := Bin2W( SubStr( cValues, 1, 2 ) )
             ELSEIF nFieldType == LONG
                nWidth := Bin2L( SubStr( cValues, 1, 4 ) )
             ENDIF
-         CASE nTag == 257
+         CASE nTag == 257 // ImageLength tag
             IF nFieldType == SHORT
                nHeight := Bin2W( SubStr( cValues, 1, 2 ) )
             ELSEIF nFieldType == LONG
                nHeight := Bin2L( SubStr( cValues, 1, 4 ) )
             ENDIF
-         CASE nTag == 258
+         CASE nTag == 258 // BitsPerSample tag
             nTemp := 0
             IF nFieldType == SHORT
                nTemp := Bin2W( cValues )
             ENDIF
             nBits := nTemp
-         CASE nTag == 262
+         CASE nTag == 262 // PhotometricInterpretation tag
             nTemp := -1
             IF nFieldType == SHORT
                nTemp := Bin2W( cValues )
             ENDIF
             IF nTemp != 0 .AND. nTemp != 1 .AND. nTemp != 2 .AND. nTemp != 3
             ENDIF
-         CASE nTag == 273
+         CASE nTag == 273 // StripOffsets tag
             IF nFieldType == SHORT
                nFrom := Bin2W( SubStr( cValues, 1, 2 ) )
             ELSEIF nFieldType == LONG
                nFrom := Bin2L( SubStr( cValues, 1, 4 ) )
             ENDIF
-         CASE nTag == 279
+         CASE nTag == 279 // StripByteCounts tag
             IF nFieldType == SHORT
                nLength := Bin2W( SubStr( cValues, 1, 2 ) )
             ELSEIF nFieldType == LONG
                nLength := Bin2L( SubStr( cValues, 1, 4 ) )
             ENDIF
             nLength *= nCount
-         CASE nTag == 282
+         CASE nTag == 282 // XResolution tag
             IF nFieldType == RATIONAL
                xRes := Bin2L( SubStr( cValues, 1, 4 ) )
             ENDIF
-         CASE nTag == 283
+         CASE nTag == 283 // YResolution tag
             IF nFieldType == RATIONAL
                yRes := Bin2L( SubStr( cValues, 1, 4 ) )
             ENDIF
@@ -2226,11 +2330,11 @@ FUNCTION pdfTIFFInfo( cFile )
 RETURN aTemp
 
 /*
- * Function: pdfJPEGInfo
- * Description: Gets information about a JPEG image.
- * Parameters:
- *   cFile - The JPEG file.
- * Returns: An array with JPEG information.
+ * Function:    pdfJPEGInfo
+ * Purpose:     Parses JPEG JFIF header markers to extract image dimensions, resolution, and color channels.
+ * Parameters:  cFile (Character) - JPEG file path.
+ * Returns:     Array - Metadata array { Width, Height, XRes, YRes, Bits, StreamOffset, StreamLength, ColorSpace }.
+ * Side Effects: Reads file directly from disk.
  */
 FUNCTION pdfJPEGInfo( cFile )
 
@@ -2242,8 +2346,10 @@ FUNCTION pdfJPEGInfo( cFile )
    nHandle := FOpen( cFile )
    c255 := Space( nBuffer )
    FRead( nHandle, @c255, nBuffer )
+   // Parse JFIF resolution markers
    xRes := Asc( SubStr( c255, 15, 1 ) ) * 256 + Asc( SubStr( c255, 16, 1 ) )
    yRes := Asc( SubStr( c255, 17, 1 ) ) * 256 + Asc( SubStr( c255, 18, 1 ) )
+   // Locate Start of Frame 0 (SOF0) marker FF C0
    nAt := RAt( Chr( 255 ) + Chr( 192 ), c255 ) + 5
    nHeight := Asc( SubStr( c255, nAt, 1 ) ) * 256 + Asc( SubStr( c255, nAt + 1, 1 ) )
    nWidth := Asc( SubStr( c255, nAt + 2, 1 ) ) * 256 + Asc( SubStr( c255, nAt + 3, 1 ) )
@@ -2263,69 +2369,69 @@ FUNCTION pdfJPEGInfo( cFile )
 RETURN aTemp
 
 /*
- * Function: FilePos
- * Description: Gets the current file position.
- * Parameters:
- *   nHandle - The file handle.
- * Returns: The current file position.
+ * Function:    FilePos
+ * Purpose:     Returns current byte offset position of an open file handle.
+ * Parameters:  nHandle (Numeric) - File handle.
+ * Returns:     Numeric - Current file pointer byte offset.
+ * Side Effects: None
  */
 STATIC FUNCTION FilePos( nHandle )
 RETURN FSeek( nHandle, 0, FS_RELATIVE )
 
 /*
- * Function: Chr_RGB
- * Description: Converts a character to an RGB value.
- * Parameters:
- *   cChar - The character to convert.
- * Returns: The RGB value.
+ * Function:    Chr_RGB
+ * Purpose:     Converts a single byte character value (0..255) to a formatted PDF color intensity string (0.00..1.00).
+ * Parameters:  cChar (Character) - Single byte character.
+ * Returns:     Character - Formatted decimal intensity string (e.g., "0.50").
+ * Side Effects: None
  */
 STATIC FUNCTION Chr_RGB( cChar )
 RETURN Str( Asc( cChar ) / 255, 4, 2 )
 
 /*
- * Function: NumToken
- * Description: Counts the number of tokens in a string.
- * Parameters:
- *   cString - The string to count.
- *   cDelimiter - The delimiter.
- * Returns: The number of tokens.
+ * Function:    NumToken
+ * Purpose:     Counts the number of delimited tokens present in a text string.
+ * Parameters:  cString    (Character) - Text string to inspect.
+ *              cDelimiter (Character) - Set of delimiter characters.
+ * Returns:     Numeric - Token count.
+ * Side Effects: None
  */
 STATIC FUNCTION NumToken( cString, cDelimiter )
 RETURN AllToken( cString, cDelimiter )
 
 /*
- * Function: Token
- * Description: Gets a token from a string.
- * Parameters:
- *   cString - The string to get the token from.
- *   cDelimiter - The delimiter.
- *   nPointer - The token index.
- * Returns: The token.
+ * Function:    Token
+ * Purpose:     Extracts the N-th delimited token element from a string.
+ * Parameters:  cString    (Character) - Text string.
+ *              cDelimiter (Character) - Delimiter characters.
+ *              nPointer   (Numeric)   - Token index position (1-based).
+ * Returns:     Character - Extracted token string.
+ * Side Effects: None
  */
 STATIC FUNCTION Token( cString, cDelimiter, nPointer )
 RETURN AllToken( cString, cDelimiter, nPointer, 1 )
 
 /*
- * Function: AtToken
- * Description: Gets the position of a token in a string.
- * Parameters:
- *   cString - The string to get the position from.
- *   cDelimiter - The delimiter.
- *   nPointer - The token index.
- * Returns: The position of the token.
+ * Function:    AtToken
+ * Purpose:     Finds starting character index position of the N-th token in a string.
+ * Parameters:  cString    (Character) - Text string.
+ *              cDelimiter (Character) - Delimiter characters.
+ *              nPointer   (Numeric)   - Token index position (1-based).
+ * Returns:     Numeric - Starting 1-based character position.
+ * Side Effects: None
  */
 STATIC FUNCTION AtToken( cString, cDelimiter, nPointer )
 RETURN AllToken( cString, cDelimiter, nPointer, 2 )
 
 /*
- * Function: AllToken
- * Description: Gets all tokens from a string.
- * Parameters:
- *   cString - The string to get the tokens from.
- *   cDelimiter - The delimiter.
- *   nPointer - The token index.
- *   nAction - The action to perform.
- * Returns: The tokens or their positions.
+ * Function:    AllToken
+ * Purpose:     Core string parsing engine supporting token counting, token extraction, and position lookup.
+ * Parameters:  cString    (Character) - Text string.
+ *              cDelimiter (Character) - Delimiter characters.
+ *              nPointer   (Numeric)   - Target token index.
+ *              nAction    (Numeric)   - Action code (0 = count tokens, 1 = get token text, 2 = get token position).
+ * Returns:     Variant - Numeric count/position or Character token text.
+ * Side Effects: None
  */
 STATIC FUNCTION AllToken( cString, cDelimiter, nPointer, nAction )
 
@@ -2334,9 +2440,10 @@ STATIC FUNCTION AllToken( cString, cDelimiter, nPointer, nAction )
    __defaultNIL( @cDelimiter, Chr( 0 ) + Chr( 9 ) + Chr( 10 ) + Chr( 13 ) + Chr( 26 ) + Chr( 32 ) + Chr( 138 ) + Chr( 141 ) )
    __defaultNIL( @nAction, 0 )
    /*
-     nAction == 0 - numtoken
-     nAction == 1 - token
-     nAction == 2 - attoken
+    * Action selector:
+    * nAction == 0 - Return total token count
+    * nAction == 1 - Return token substring
+    * nAction == 2 - Return starting position offset
     */
    WHILE nPos <= nLen
       IF ! SubStr( cString, nPos, 1 ) $ cDelimiter
@@ -2367,12 +2474,12 @@ STATIC FUNCTION AllToken( cString, cDelimiter, nPointer, nAction )
 RETURN cRet
 
 /*
- * Function: NumAt
- * Description: Counts the number of occurrences of a substring in a string.
- * Parameters:
- *   cSearch - The substring to search for.
- *   cString - The string to search in.
- * Returns: The number of occurrences.
+ * Function:    NumAt
+ * Purpose:     Counts total non-overlapping occurrences of a substring within a larger text string.
+ * Parameters:  cSearch (Character) - Substring to count.
+ *              cString (Character) - Text string to scan.
+ * Returns:     Numeric - Total occurrence count.
+ * Side Effects: None
  */
 STATIC FUNCTION NumAt( cSearch, cString )
 
@@ -2386,11 +2493,11 @@ STATIC FUNCTION NumAt( cSearch, cString )
 RETURN n
 
 /*
- * Function: FileSize
- * Description: Gets the size of a file.
- * Parameters:
- *   nHandle - The file handle.
- * Returns: The size of the file.
+ * Function:    FileSize
+ * Purpose:     Measures the total byte size of an open file handle.
+ * Parameters:  nHandle (Numeric) - Low-level file handle.
+ * Returns:     Numeric - File size in bytes.
+ * Side Effects: Temporarily moves and restores file seek pointer position.
  */
 STATIC FUNCTION FileSize( nHandle )
 
@@ -2404,14 +2511,14 @@ STATIC FUNCTION FileSize( nHandle )
 RETURN nLength
 
 /*
- * Function: Array2File
- * Description: Writes an array to a file.
- * Parameters:
- *   cFile - The file to write to.
- *   aRay - The array to write.
- *   nDepth - The depth of the array.
- *   hFile - The file handle.
- * Returns: The number of bytes written.
+ * Function:    Array2File
+ * Purpose:     Serializes a multidimensional array structure to a binary data file.
+ * Parameters:  cFile  (Character) - Output file path.
+ *              aRay   (Array)     - Array structure to serialize.
+ *              nDepth (Numeric)   - Recursion depth counter.
+ *              hFile  (Numeric)   - Open file handle.
+ * Returns:     Numeric - Total bytes written.
+ * Side Effects: Writes data to disk file; creates file if hFile is NIL.
  */
 STATIC FUNCTION Array2File( cFile, aRay, nDepth, hFile )
 
@@ -2439,17 +2546,18 @@ STATIC FUNCTION Array2File( cFile, aRay, nDepth, hFile )
 RETURN nBytes
 
 /*
- * Function: WriteData
- * Description: Writes data to a file.
- * Parameters:
- *   hFile - The file handle.
- *   xData - The data to write.
- * Returns: The number of bytes written.
+ * Function:    WriteData
+ * Purpose:     Helper function that writes typed binary element descriptors and data payloads to file.
+ * Parameters:  hFile (Numeric) - Output file handle.
+ *              xData (Variant) - Variable value to serialize.
+ * Returns:     Numeric - Bytes written to file.
+ * Side Effects: Flushes bytes to low-level file handle.
  */
 STATIC FUNCTION WriteData( hFile, xData )
 
    LOCAL cData := ValType( xData )
 
+   // Encode type indicator and length header followed by raw payload
    IF HB_ISSTRING( xData )
       cData += I2Bin( Len( xData ) ) + xData
    ELSEIF HB_ISNUMERIC( xData )
@@ -2467,13 +2575,13 @@ STATIC FUNCTION WriteData( hFile, xData )
 RETURN FWrite( hFile, cData, Len( cData ) )
 
 /*
- * Function: File2Array
- * Description: Reads an array from a file.
- * Parameters:
- *   cFile - The file to read from.
- *   nLen - The length of the array.
- *   hFile - The file handle.
- * Returns: The array.
+ * Function:    File2Array
+ * Purpose:     Deserializes an array structure from a previously written binary file.
+ * Parameters:  cFile (Character) - Path of file to read.
+ *              nLen  (Numeric)   - Expected element count.
+ *              hFile (Numeric)   - Active file handle.
+ * Returns:     Array - Reconstructed multidimensional array structure.
+ * Side Effects: Reads data directly from disk file handle.
  */
 STATIC FUNCTION File2Array( cFile, nLen, hFile )
 
@@ -2492,6 +2600,7 @@ STATIC FUNCTION File2Array( cFile, nLen, hFile )
       ENDIF
       nLen := Bin2I( Right( cData, 2 ) )
    ENDIF
+   // Recursively read typed data elements from file stream
    DO WHILE nDepth < nLen
       cData := Space( 3 )
       nBytes := FRead( hFile, @cData, 3 )

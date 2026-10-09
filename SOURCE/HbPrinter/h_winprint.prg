@@ -2,7 +2,7 @@
  * HBPRINTER - Harbour Win32 Printing library source code
  *
  * Copyright 2002-2005 Richard Rylko <rrylko@poczta.onet.pl>
-*/
+ */
 
 #define __HBPRN__
 
@@ -164,6 +164,21 @@ CLASS HBPrinter
 ENDCLASS
 
 
+/*
+ * Routine: New()
+ *
+ * Purpose:
+ * Initializes a new HBPrinter object, discovers available printers and ports, records the default printer, and establishes the base name used for preview metafiles.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * HBPrinter - The initialized printer object.
+ *
+ * Side Effects:
+ * Updates printer lists, default-printer information, Error when enumeration fails, and the preview metafile base name.
+ */
 METHOD New() CLASS HBPrinter
 
    LOCAL aprnport
@@ -182,6 +197,22 @@ METHOD New() CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SelectPrinter()
+ *
+ * Purpose:
+ * Selects the printer device context used by the object, either from the default printer, a print dialog, or an explicitly named printer. It also initializes device-dependent printing resources when a device context is obtained.
+ *
+ * Parameters:
+ * cPrinter - Harbour value - Value used by the routine as indicated by the source.
+ * lPrev - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * NIL - No meaningful return value; printer selection is reflected in object state and Error.
+ *
+ * Side Effects:
+ * Updates the printer device context, printer name, page/copy options from the dialog when used, preview mode when requested, printer capabilities, and registered default GDI objects.
+ */
 METHOD SelectPrinter( cPrinter, lPrev ) CLASS HBPrinter
 
 #ifndef UNICODE
@@ -238,6 +269,22 @@ METHOD SelectPrinter( cPrinter, lPrev ) CLASS HBPrinter
 RETURN NIL
 
 
+/*
+ * Routine: SetDevMode()
+ *
+ * Purpose:
+ * Changes a printer device-mode setting and refreshes device capabilities and coordinate conversion state.
+ *
+ * Parameters:
+ * what - Harbour value - Value used by the routine as indicated by the source.
+ * newvalue - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Updates the device context reference and recalculates device capabilities and coordinate units.
+ */
 METHOD SetDevMode( what, newvalue ) CLASS HBPrinter
 
    ::hDCRef := rr_setdevmode( what, newvalue )
@@ -247,6 +294,23 @@ METHOD SetDevMode( what, newvalue ) CLASS HBPrinter
 RETURN Self
 
 
+/*
+ * Routine: SetUserMode()
+ *
+ * Purpose:
+ * Changes a user-defined printer setting and refreshes device capabilities and coordinate conversion state.
+ *
+ * Parameters:
+ * what - Harbour value - Value used by the routine as indicated by the source.
+ * value - Harbour value - Value used by the routine as indicated by the source.
+ * value2 - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Updates the device context reference and recalculates device capabilities and coordinate units.
+ */
 METHOD SetUserMode( what, value, value2 ) CLASS HBPrinter
 
    ::hDCRef := rr_setusermode( what, value, value2 )
@@ -256,6 +320,21 @@ METHOD SetUserMode( what, value, value2 ) CLASS HBPrinter
 RETURN Self
 
 
+/*
+ * Routine: StartDoc()
+ *
+ * Purpose:
+ * Starts a print document unless preview mode is active. The optional document name is sanitized and stored before the document is started.
+ *
+ * Parameters:
+ * ldocname - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * May start a native print document and changes PRINTING state on supported builds.
+ */
 METHOD StartDoc( ldocname ) CLASS HBPrinter
 
 #ifndef __XHARBOUR__
@@ -272,6 +351,23 @@ METHOD StartDoc( ldocname ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SetPage()
+ *
+ * Purpose:
+ * Applies optional paper size and orientation settings, optionally selects a named font, and refreshes device capabilities and units.
+ *
+ * Parameters:
+ * orient - Harbour value - Value used by the routine as indicated by the source.
+ * size - Harbour value - Value used by the routine as indicated by the source.
+ * fontname - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * May change printer device mode, selected font, device capabilities, and coordinate conversion state.
+ */
 METHOD SetPage( orient, size, fontname ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( fontname, "F" )
@@ -291,6 +387,21 @@ METHOD SetPage( orient, size, fontname ) CLASS HBPrinter
 RETURN Self
 
 
+/*
+ * Routine: Startpage()
+ *
+ * Purpose:
+ * Starts a physical printer page or creates an Enhanced Metafile page in preview mode, then restores the drawing state used by the printer object.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * May create a preview EMF file or start a physical printer page and restores selected clipping, viewport, colors, brush, pen, and font state.
+ */
 METHOD Startpage() CLASS HBPrinter
 
    IF ::PreviewMode
@@ -312,6 +423,21 @@ METHOD Startpage() CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: Endpage()
+ *
+ * Purpose:
+ * Ends the current physical page or closes the current preview Enhanced Metafile and records its device information.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Closes the current page/metafile and, in preview mode, appends page metadata to MetaFiles.
+ */
 METHOD Endpage() CLASS HBPrinter
 
    IF ::PreviewMode
@@ -324,6 +450,22 @@ METHOD Endpage() CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SaveMetaFiles()
+ *
+ * Purpose:
+ * Converts selected preview Enhanced Metafile pages, or all preview pages, to a PDF file.
+ *
+ * Parameters:
+ * number - Harbour value - Value used by the routine as indicated by the source.
+ * filename - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * May create a PDF file from preview EMF files.
+ */
 METHOD SaveMetaFiles( number, filename ) CLASS HBPrinter
 
    LOCAL aPages
@@ -344,6 +486,21 @@ METHOD SaveMetaFiles( number, filename ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: EndDoc()
+ *
+ * Purpose:
+ * Ends the current physical print document or opens the preview interface when preview mode is active.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Ends native printing or invokes the preview interface and clears PRINTING state on supported builds.
+ */
 METHOD EndDoc() CLASS HBPrinter
 
    IF ::PreviewMode
@@ -359,6 +516,21 @@ METHOD EndDoc() CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SetTextColor()
+ *
+ * Purpose:
+ * Sets the current text color, accepting either a numeric color value or an RGB component array, and returns the previous color.
+ *
+ * Parameters:
+ * clr - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The text color that was active before the call.
+ *
+ * Side Effects:
+ * Changes the active text color.
+ */
 METHOD SetTextColor( clr ) CLASS HBPrinter
 
    LOCAL lret := ::Textcolor
@@ -376,6 +548,21 @@ METHOD SetTextColor( clr ) CLASS HBPrinter
 RETURN lret
 
 
+/*
+ * Routine: SetPolyFillMode()
+ *
+ * Purpose:
+ * Sets the polygon fill mode and returns the previous fill mode.
+ *
+ * Parameters:
+ * style - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The polygon fill mode that was active before the call.
+ *
+ * Side Effects:
+ * Changes the stored and native polygon fill mode.
+ */
 METHOD SetPolyFillMode( style ) CLASS HBPrinter
 
    LOCAL lret := ::PolyFillMode
@@ -384,6 +571,21 @@ METHOD SetPolyFillMode( style ) CLASS HBPrinter
 RETURN lret
 
 
+/*
+ * Routine: SetBkColor()
+ *
+ * Purpose:
+ * Sets the current background color, accepting either a numeric color value or an RGB component array, and returns the previous color.
+ *
+ * Parameters:
+ * clr - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The background color that was active before the call.
+ *
+ * Side Effects:
+ * Changes the active background color.
+ */
 METHOD SetBkColor( clr ) CLASS HBPrinter
 
    LOCAL lret := ::BkColor
@@ -399,6 +601,21 @@ METHOD SetBkColor( clr ) CLASS HBPrinter
 RETURN lret
 
 
+/*
+ * Routine: SetBkMode()
+ *
+ * Purpose:
+ * Sets the text background mode and returns the previous mode.
+ *
+ * Parameters:
+ * nmode - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The background mode that was active before the call.
+ *
+ * Side Effects:
+ * Changes the active background mode.
+ */
 METHOD SetBkMode( nmode ) CLASS HBPrinter
 
    LOCAL lret := ::Bkmode
@@ -409,6 +626,24 @@ METHOD SetBkMode( nmode ) CLASS HBPrinter
 RETURN lret
 
 
+/*
+ * Routine: DefineBrush()
+ *
+ * Purpose:
+ * Creates and registers a named brush if that name is not already defined.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * lstyle - Harbour value - Value used by the routine as indicated by the source.
+ * lcolor - Harbour value - Value used by the routine as indicated by the source.
+ * lhatch - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates a native brush and stores its handle and name.
+ */
 METHOD DefineBrush( defname, lstyle, lcolor, lhatch ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "B" )
@@ -430,6 +665,21 @@ METHOD DefineBrush( defname, lstyle, lcolor, lhatch ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SelectBrush()
+ *
+ * Purpose:
+ * Selects a named registered brush as the current drawing brush.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Changes the currently selected native brush and stored current-brush handle.
+ */
 METHOD SelectBrush( defname ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "B" )
@@ -442,6 +692,24 @@ METHOD SelectBrush( defname ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: ModifyBrush()
+ *
+ * Purpose:
+ * Modifies an existing named brush and reselects it when it was the currently selected brush.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * lstyle - Harbour value - Value used by the routine as indicated by the source.
+ * lcolor - Harbour value - Value used by the routine as indicated by the source.
+ * lhatch - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Recreates/modifies the native brush and may update the currently selected brush.
+ */
 METHOD ModifyBrush( defname, lstyle, lcolor, lhatch ) CLASS HBPrinter
 
    LOCAL lhand := 0, lpos
@@ -475,6 +743,24 @@ METHOD ModifyBrush( defname, lstyle, lcolor, lhatch ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: DefinePen()
+ *
+ * Purpose:
+ * Creates and registers a named pen if that name is not already defined.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * lstyle - Harbour value - Value used by the routine as indicated by the source.
+ * lwidth - Harbour value - Value used by the routine as indicated by the source.
+ * lcolor - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates a native pen and stores its handle and name.
+ */
 METHOD DefinePen( defname, lstyle, lwidth, lcolor ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "P" )
@@ -496,6 +782,24 @@ METHOD DefinePen( defname, lstyle, lwidth, lcolor ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: ModifyPen()
+ *
+ * Purpose:
+ * Modifies an existing named pen and reselects it when it was the currently selected pen.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * lstyle - Harbour value - Value used by the routine as indicated by the source.
+ * lwidth - Harbour value - Value used by the routine as indicated by the source.
+ * lcolor - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Recreates/modifies the native pen and may update the currently selected pen.
+ */
 METHOD ModifyPen( defname, lstyle, lwidth, lcolor ) CLASS HBPrinter
 
    LOCAL lhand := 0, lpos
@@ -529,6 +833,21 @@ METHOD ModifyPen( defname, lstyle, lwidth, lcolor ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SelectPen()
+ *
+ * Purpose:
+ * Selects a named registered pen as the current drawing pen.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Changes the currently selected native pen and stored current-pen handle.
+ */
 METHOD SelectPen( defname ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "P" )
@@ -541,6 +860,29 @@ METHOD SelectPen( defname ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: DefineFont()
+ *
+ * Purpose:
+ * Creates and registers a named font using the supplied font attributes.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * lfontname - Harbour value - Value used by the routine as indicated by the source.
+ * lfontsize - Harbour value - Value used by the routine as indicated by the source.
+ * lfontwidth - Harbour value - Value used by the routine as indicated by the source.
+ * langle - Harbour value - Value used by the routine as indicated by the source.
+ * lweight - Harbour value - Value used by the routine as indicated by the source.
+ * litalic - Harbour value - Value used by the routine as indicated by the source.
+ * lunderline - Harbour value - Value used by the routine as indicated by the source.
+ * lstrikeout - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates a native font and stores its handle, name, and font attributes.
+ */
 METHOD DefineFont( defname, lfontname, lfontsize, lfontwidth, langle, lweight, litalic, lunderline, lstrikeout ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( lfontname, "F" )
@@ -563,6 +905,33 @@ METHOD DefineFont( defname, lfontname, lfontsize, lfontwidth, langle, lweight, l
 RETURN self
 
 
+/*
+ * Routine: ModifyFont()
+ *
+ * Purpose:
+ * Modifies the stored attributes and native font handle of an existing named font, preserving the current selection when applicable.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * lfontname - Harbour value - Value used by the routine as indicated by the source.
+ * lfontsize - Harbour value - Value used by the routine as indicated by the source.
+ * lfontwidth - Harbour value - Value used by the routine as indicated by the source.
+ * langle - Harbour value - Value used by the routine as indicated by the source.
+ * lweight - Harbour value - Value used by the routine as indicated by the source.
+ * lnweight - Harbour value - Value used by the routine as indicated by the source.
+ * litalic - Harbour value - Value used by the routine as indicated by the source.
+ * lnitalic - Harbour value - Value used by the routine as indicated by the source.
+ * lunderline - Harbour value - Value used by the routine as indicated by the source.
+ * lnunderline - Harbour value - Value used by the routine as indicated by the source.
+ * lstrikeout - Harbour value - Value used by the routine as indicated by the source.
+ * lnstrikeout - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Recreates a native font, updates stored attributes, may reselect it, and deletes the previous native font object.
+ */
 METHOD ModifyFont( defname, lfontname, lfontsize, lfontwidth, langle, lweight, lnweight, litalic, lnitalic, lunderline, lnunderline, lstrikeout, lnstrikeout ) CLASS HBPrinter
 
    LOCAL lhand := 0, lpos
@@ -604,6 +973,21 @@ METHOD ModifyFont( defname, lfontname, lfontsize, lfontwidth, langle, lweight, l
 RETURN self
 
 
+/*
+ * Routine: SelectFont()
+ *
+ * Purpose:
+ * Selects a named registered font as the current drawing font.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Changes the currently selected native font and stored current-font handle.
+ */
 METHOD SelectFont( defname ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "F" )
@@ -616,6 +1000,23 @@ METHOD SelectFont( defname ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SetUnits()
+ *
+ * Purpose:
+ * Changes the coordinate unit system and recalculates the maximum row and column values from the current device capabilities.
+ *
+ * Parameters:
+ * newvalue - Harbour value - Value used by the routine as indicated by the source.
+ * r - Harbour value - Value used by the routine as indicated by the source.
+ * c - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The unit mode that was active before the call.
+ *
+ * Side Effects:
+ * Changes coordinate interpretation and recalculates MaxRow and MaxCol.
+ */
 METHOD SetUnits( newvalue, r, c ) CLASS HBPrinter
 
    LOCAL oldvalue := ::Units
@@ -647,6 +1048,22 @@ METHOD SetUnits( newvalue, r, c ) CLASS HBPrinter
 RETURN oldvalue
 
 
+/*
+ * Routine: Convert()
+ *
+ * Purpose:
+ * Converts a two-element coordinate or size array from the current HBPrinter unit system to device coordinates.
+ *
+ * Parameters:
+ * arr - Harbour value - Value used by the routine as indicated by the source.
+ * lsize - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Array - A converted copy of the supplied two-element array.
+ *
+ * Side Effects:
+ * Does not modify the input array; returns a converted clone.
+ */
 METHOD Convert( arr, lsize ) CLASS HBPrinter
 
    LOCAL aret := AClone( arr )
@@ -678,6 +1095,27 @@ METHOD Convert( arr, lsize ) CLASS HBPrinter
 RETURN aret
 
 
+/*
+ * Routine: DrawText()
+ *
+ * Purpose:
+ * Draws text inside the specified rectangle using the selected font definition and drawing style.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * txt - Harbour value - Value used by the routine as indicated by the source.
+ * style - Harbour value - Value used by the routine as indicated by the source.
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders text through the underlying printing subsystem.
+ */
 METHOD DrawText( row, col, torow, tocol, txt, style, defname ) CLASS HBPrinter
 
    LOCAL lhf := ::getobjbyname( defname, "F" )
@@ -689,6 +1127,24 @@ METHOD DrawText( row, col, torow, tocol, txt, style, defname ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: TEXTOUT()
+ *
+ * Purpose:
+ * Outputs text at the specified position using the selected font definition.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * txt - Harbour value - Value used by the routine as indicated by the source.
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders text through the underlying printing subsystem.
+ */
 METHOD TEXTOUT( row, col, txt, defname ) CLASS HBPrinter
 
    LOCAL lhf := ::getobjbyname( defname, "F" )
@@ -698,6 +1154,26 @@ METHOD TEXTOUT( row, col, txt, defname ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: Say()
+ *
+ * Purpose:
+ * Outputs one or more lines of text, converting common Harbour value types to printable text and optionally applying a temporary color and text alignment.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * txt - Harbour value - Value used by the routine as indicated by the source.
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * lcolor - Harbour value - Value used by the routine as indicated by the source.
+ * lalign - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders one or more lines and temporarily changes text color/alignment when requested, restoring the stored color/alignment afterward.
+ */
 METHOD Say( row, col, txt, defname, lcolor, lalign ) CLASS HBPrinter
 
    LOCAL atxt := {}, i, lhf := ::getobjbyname( defname, "F" ), oldalign
@@ -740,6 +1216,23 @@ METHOD Say( row, col, txt, defname, lcolor, lalign ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: DefineImageList()
+ *
+ * Purpose:
+ * Creates and registers a named image list from the specified picture resource.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * cpicture - Harbour value - Value used by the routine as indicated by the source.
+ * nicons - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates a native image list and stores its handle and dimensions.
+ */
 METHOD DefineImageList( defname, cpicture, nicons ) CLASS HBPrinter
 
    LOCAL lhi := ::getobjbyname( defname, "I" ), w := 0, h := 0, hand
@@ -756,6 +1249,28 @@ METHOD DefineImageList( defname, cpicture, nicons ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: DrawImageList()
+ *
+ * Purpose:
+ * Draws an icon from a registered image list in the specified destination area.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * nicon - Harbour value - Value used by the routine as indicated by the source.
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * lstyle - Harbour value - Value used by the routine as indicated by the source.
+ * color - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders an icon and updates Error with the underlying operation result.
+ */
 METHOD DrawImageList( defname, nicon, row, col, torow, tocol, lstyle, color ) CLASS HBPrinter
 
    LOCAL lhi := ::getobjbyname( defname, "I" )
@@ -771,6 +1286,26 @@ METHOD DrawImageList( defname, nicon, row, col, torow, tocol, lstyle, color ) CL
 RETURN self
 
 
+/*
+ * Routine: Rectangle()
+ *
+ * Purpose:
+ * Sets the viewport origin from the supplied position and leaves the current drawing viewport at that origin.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ * defbrush - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Changes the viewport origin used by subsequent drawing operations.
+ */
 METHOD Rectangle( row, col, torow, tocol, defpen, defbrush ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" ), lhb := ::getobjbyname( defbrush, "B" )
@@ -782,6 +1317,25 @@ METHOD Rectangle( row, col, torow, tocol, defpen, defbrush ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: FrameRect()
+ *
+ * Purpose:
+ * Draws a rectangular frame using the specified brush.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * defbrush - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders a rectangular frame.
+ */
 METHOD FrameRect( row, col, torow, tocol, defbrush ) CLASS HBPrinter
 
    LOCAL lhb := ::getobjbyname( defbrush, "B" )
@@ -793,6 +1347,28 @@ METHOD FrameRect( row, col, torow, tocol, defbrush ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: RoundRect()
+ *
+ * Purpose:
+ * Draws a rounded rectangle using the specified pen and brush.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * widthellipse - Harbour value - Value used by the routine as indicated by the source.
+ * heightellipse - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ * defbrush - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders a rounded rectangle.
+ */
 METHOD RoundRect( row, col, torow, tocol, widthellipse, heightellipse, defpen, defbrush ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" ), lhb := ::getobjbyname( defbrush, "B" )
@@ -804,6 +1380,25 @@ METHOD RoundRect( row, col, torow, tocol, widthellipse, heightellipse, defpen, d
 RETURN self
 
 
+/*
+ * Routine: FillRect()
+ *
+ * Purpose:
+ * Fills a rectangle using the specified brush.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * defbrush - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders a filled rectangle.
+ */
 METHOD FillRect( row, col, torow, tocol, defbrush ) CLASS HBPrinter
 
    LOCAL lhb := ::getobjbyname( defbrush, "B" )
@@ -815,6 +1410,24 @@ METHOD FillRect( row, col, torow, tocol, defbrush ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: InvertRect()
+ *
+ * Purpose:
+ * Inverts the pixels in the specified rectangle.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Inverts the specified drawing area.
+ */
 METHOD InvertRect( row, col, torow, tocol ) CLASS HBPrinter
 
    hb_default( @torow, ::maxrow )
@@ -824,6 +1437,26 @@ METHOD InvertRect( row, col, torow, tocol ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: Ellipse()
+ *
+ * Purpose:
+ * Draws an ellipse using the specified pen and brush.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ * defbrush - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders an ellipse.
+ */
 METHOD Ellipse( row, col, torow, tocol, defpen, defbrush ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" ), lhb := ::getobjbyname( defbrush, "B" )
@@ -835,6 +1468,29 @@ METHOD Ellipse( row, col, torow, tocol, defpen, defbrush ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: Arc()
+ *
+ * Purpose:
+ * Draws an arc defined by a bounding rectangle and two endpoint coordinates.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * rowsarc - Harbour value - Value used by the routine as indicated by the source.
+ * colsarc - Harbour value - Value used by the routine as indicated by the source.
+ * rowearc - Harbour value - Value used by the routine as indicated by the source.
+ * colearc - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders an arc.
+ */
 METHOD Arc( row, col, torow, tocol, rowsarc, colsarc, rowearc, colearc, defpen ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" )
@@ -846,6 +1502,29 @@ METHOD Arc( row, col, torow, tocol, rowsarc, colsarc, rowearc, colearc, defpen )
 RETURN self
 
 
+/*
+ * Routine: ArcTo()
+ *
+ * Purpose:
+ * Draws an arc using the specified bounding rectangle and radial endpoint coordinates.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * rowrad1 - Harbour value - Value used by the routine as indicated by the source.
+ * colrad1 - Harbour value - Value used by the routine as indicated by the source.
+ * rowrad2 - Harbour value - Value used by the routine as indicated by the source.
+ * colrad2 - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders an arc from the current drawing context according to the supplied geometry.
+ */
 METHOD ArcTo( row, col, torow, tocol, rowrad1, colrad1, rowrad2, colrad2, defpen ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" )
@@ -857,6 +1536,30 @@ METHOD ArcTo( row, col, torow, tocol, rowrad1, colrad1, rowrad2, colrad2, defpen
 RETURN self
 
 
+/*
+ * Routine: Chord()
+ *
+ * Purpose:
+ * Draws a chord using the specified bounding rectangle, radial endpoints, pen, and brush.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * rowrad1 - Harbour value - Value used by the routine as indicated by the source.
+ * colrad1 - Harbour value - Value used by the routine as indicated by the source.
+ * rowrad2 - Harbour value - Value used by the routine as indicated by the source.
+ * colrad2 - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ * defbrush - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders a chord.
+ */
 METHOD Chord( row, col, torow, tocol, rowrad1, colrad1, rowrad2, colrad2, defpen, defbrush ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" ), lhb := ::getobjbyname( defbrush, "B" )
@@ -868,6 +1571,30 @@ METHOD Chord( row, col, torow, tocol, rowrad1, colrad1, rowrad2, colrad2, defpen
 RETURN self
 
 
+/*
+ * Routine: Pie()
+ *
+ * Purpose:
+ * Draws a pie-shaped sector using the specified bounding rectangle, radial endpoints, pen, and brush.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * rowrad1 - Harbour value - Value used by the routine as indicated by the source.
+ * colrad1 - Harbour value - Value used by the routine as indicated by the source.
+ * rowrad2 - Harbour value - Value used by the routine as indicated by the source.
+ * colrad2 - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ * defbrush - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders a pie sector.
+ */
 METHOD Pie( row, col, torow, tocol, rowrad1, colrad1, rowrad2, colrad2, defpen, defbrush ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" ), lhb := ::getobjbyname( defbrush, "B" )
@@ -879,6 +1606,24 @@ METHOD Pie( row, col, torow, tocol, rowrad1, colrad1, rowrad2, colrad2, defpen, 
 RETURN self
 
 
+/*
+ * Routine: Polygon()
+ *
+ * Purpose:
+ * Draws a polygon from the supplied point array using the specified pen, brush, and polygon fill style.
+ *
+ * Parameters:
+ * apoints - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ * defbrush - Harbour value - Value used by the routine as indicated by the source.
+ * style - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders a polygon and updates Error with the native operation result.
+ */
 METHOD Polygon( apoints, defpen, defbrush, style ) CLASS HBPrinter
 
    LOCAL apx := {}, apy := {}, temp
@@ -890,6 +1635,22 @@ METHOD Polygon( apoints, defpen, defbrush, style ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: PolyBezier()
+ *
+ * Purpose:
+ * Draws a Bezier curve sequence from the supplied point array using the specified pen.
+ *
+ * Parameters:
+ * apoints - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders Bezier curves and updates Error with the native operation result.
+ */
 METHOD PolyBezier( apoints, defpen ) CLASS HBPrinter
 
    LOCAL apx := {}, apy := {}, temp
@@ -901,6 +1662,22 @@ METHOD PolyBezier( apoints, defpen ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: PolyBezierTo()
+ *
+ * Purpose:
+ * Draws a connected Bezier curve sequence from the current drawing position using the supplied point array and pen.
+ *
+ * Parameters:
+ * apoints - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders connected Bezier curves and updates Error with the native operation result.
+ */
 METHOD PolyBezierTo( apoints, defpen ) CLASS HBPrinter
 
    LOCAL apx := {}, apy := {}, temp
@@ -912,6 +1689,25 @@ METHOD PolyBezierTo( apoints, defpen ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: Line()
+ *
+ * Purpose:
+ * Draws a line between two positions using the specified pen.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders a line and updates Error with the native operation result.
+ */
 METHOD Line( row, col, torow, tocol, defpen ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" )
@@ -923,6 +1719,23 @@ METHOD Line( row, col, torow, tocol, defpen ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: LineTo()
+ *
+ * Purpose:
+ * Draws a line from the current drawing position to the specified position using the specified pen.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * defpen - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders a line from the current position and updates Error with the native operation result.
+ */
 METHOD LineTo( row, col, defpen ) CLASS HBPrinter
 
    LOCAL lhp := ::getobjbyname( defpen, "P" )
@@ -932,6 +1745,23 @@ METHOD LineTo( row, col, defpen ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: GetTextExtent()
+ *
+ * Purpose:
+ * Calculates the device-space extent of a text string using the specified font and stores the result in the supplied point array.
+ *
+ * Parameters:
+ * ctext - Harbour value - Value used by the routine as indicated by the source.
+ * apoint - Harbour value - Value used by the routine as indicated by the source.
+ * deffont - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object; the calculated dimensions are written to apoint.
+ *
+ * Side Effects:
+ * Writes calculated text dimensions into the supplied array and updates Error.
+ */
 METHOD GetTextExtent( ctext, apoint, deffont ) CLASS HBPrinter
 
    LOCAL lhf := ::getobjbyname( deffont, "F" )
@@ -941,6 +1771,23 @@ METHOD GetTextExtent( ctext, apoint, deffont ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: GetTextExtent_mm()
+ *
+ * Purpose:
+ * Calculates text extent and converts the resulting dimensions to millimetres using the current device capabilities.
+ *
+ * Parameters:
+ * ctext - Harbour value - Value used by the routine as indicated by the source.
+ * apoint - Harbour value - Value used by the routine as indicated by the source.
+ * deffont - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object; the converted dimensions are written to apoint.
+ *
+ * Side Effects:
+ * Writes calculated text dimensions converted to millimetres into the supplied array and updates Error.
+ */
 METHOD GetTextExtent_mm( ctext, apoint, deffont ) CLASS HBPrinter
 
    LOCAL lhf := ::getobjbyname( deffont, "F" )
@@ -952,6 +1799,23 @@ METHOD GetTextExtent_mm( ctext, apoint, deffont ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: GetObjByName()
+ *
+ * Purpose:
+ * Looks up a named registered printer resource by resource type and returns either its handle or its registry position.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * what - Harbour value - Value used by the routine as indicated by the source.
+ * retpos - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - A resource handle, or a registry position when retpos is supplied; zero means not found.
+ *
+ * Side Effects:
+ * Reads the object registry without changing it.
+ */
 METHOD GetObjByName( defname, what, retpos ) CLASS HBPrinter
 
    LOCAL lfound, lret := 0, aref, ahref
@@ -979,6 +1843,25 @@ METHOD GetObjByName( defname, what, retpos ) CLASS HBPrinter
 RETURN lret
 
 
+/*
+ * Routine: DefineRectRgn()
+ *
+ * Purpose:
+ * Creates and registers a named rectangular clipping region.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates and registers a native rectangular region.
+ */
 METHOD DefineRectRgn( defname, row, col, torow, tocol ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "R" )
@@ -994,6 +1877,25 @@ METHOD DefineRectRgn( defname, row, col, torow, tocol ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: DefineEllipticRgn()
+ *
+ * Purpose:
+ * Creates and registers a named elliptical clipping region.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates and registers a native elliptical region.
+ */
 METHOD DefineEllipticRgn( defname, row, col, torow, tocol ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "R" )
@@ -1009,6 +1911,27 @@ METHOD DefineEllipticRgn( defname, row, col, torow, tocol ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: DefineRoundRectRgn()
+ *
+ * Purpose:
+ * Creates and registers a named rounded-rectangle clipping region.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * widthellipse - Harbour value - Value used by the routine as indicated by the source.
+ * heightellipse - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates and registers a native rounded region.
+ */
 METHOD DefineRoundRectRgn( defname, row, col, torow, tocol, widthellipse, heightellipse ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "R" )
@@ -1024,6 +1947,23 @@ METHOD DefineRoundRectRgn( defname, row, col, torow, tocol, widthellipse, height
 RETURN self
 
 
+/*
+ * Routine: DefinePolygonRgn()
+ *
+ * Purpose:
+ * Creates and registers a named polygon clipping region from the supplied points.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * apoints - Harbour value - Value used by the routine as indicated by the source.
+ * style - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates and registers a native polygon region.
+ */
 METHOD DefinePolygonRgn( defname, apoints, style ) CLASS HBPrinter
 
    LOCAL apx := {}, apy := {}, temp
@@ -1039,6 +1979,24 @@ METHOD DefinePolygonRgn( defname, apoints, style ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: CombineRgn()
+ *
+ * Purpose:
+ * Creates and registers a named region obtained by combining two existing regions with the specified combination style.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ * reg1 - Harbour value - Value used by the routine as indicated by the source.
+ * reg2 - Harbour value - Value used by the routine as indicated by the source.
+ * style - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Creates and registers a combined native region.
+ */
 METHOD CombineRgn( defname, reg1, reg2, style ) CLASS HBPrinter
 
    LOCAL lr1 := ::getobjbyname( reg1, "R" ), lr2 := ::getobjbyname( reg2, "R" )
@@ -1053,6 +2011,21 @@ METHOD CombineRgn( defname, reg1, reg2, style ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SelectClipRgn()
+ *
+ * Purpose:
+ * Selects a named region as the current clipping region.
+ *
+ * Parameters:
+ * defname - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Changes the active clipping region and stored current-region handle.
+ */
 METHOD SelectClipRgn( defname ) CLASS HBPrinter
 
    LOCAL lhand := ::getobjbyname( defname, "R" )
@@ -1065,6 +2038,21 @@ METHOD SelectClipRgn( defname ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: DeleteClipRgn()
+ *
+ * Purpose:
+ * Removes the current clipping region and resets the stored current-region handle.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Clears the active clipping region and stored current-region handle.
+ */
 METHOD DeleteClipRgn() CLASS HBPrinter
 
    ::Regions[ 1, 1 ] := 0
@@ -1073,6 +2061,22 @@ METHOD DeleteClipRgn() CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: SetViewPortOrg()
+ *
+ * Purpose:
+ * Sets the viewport origin after converting the supplied coordinates according to the current unit system.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Changes the stored and native viewport origin.
+ */
 METHOD SetViewPortOrg( row, col ) CLASS HBPrinter
 
    row := if( row <> NIL, row, 0 )
@@ -1083,6 +2087,21 @@ METHOD SetViewPortOrg( row, col ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: GetViewPortOrg()
+ *
+ * Purpose:
+ * Retrieves the current viewport origin into the object state.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Updates the stored viewport origin from the printing subsystem.
+ */
 METHOD GetViewPortOrg() CLASS HBPrinter
 
    rr_getviewportorg( ::ViewPortOrg )
@@ -1090,6 +2109,21 @@ METHOD GetViewPortOrg() CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: End()
+ *
+ * Purpose:
+ * Releases preview files, printer device resources, registered GDI objects, image lists, and the underlying printing support.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * NIL - No meaningful return value; printer and associated resources are released.
+ *
+ * Side Effects:
+ * Deletes preview EMF files and native printer/GDI resources and finishes the printing subsystem.
+ */
 METHOD End() CLASS HBPrinter
 
    IF ::PreviewMode
@@ -1110,6 +2144,21 @@ METHOD End() CLASS HBPrinter
 RETURN NIL
 
 
+/*
+ * Routine: DXCOLORS()
+ *
+ * Purpose:
+ * Resolves a named or indexed color from the internal RGB color-name table.
+ *
+ * Parameters:
+ * par - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The native color value, or zero when the supplied name/index is not resolved.
+ *
+ * Side Effects:
+ * May initialize the shared RGB color-name table on first use.
+ */
 METHOD DXCOLORS( par ) CLASS HBPrinter
 
    LOCAL ltemp := 0, aColorNames
@@ -1269,11 +2318,43 @@ METHOD DXCOLORS( par ) CLASS HBPrinter
 RETURN ltemp
 
 
+/*
+ * Routine: SetRGB()
+ *
+ * Purpose:
+ * Builds a native RGB color value from the supplied red, green, and blue components.
+ *
+ * Parameters:
+ * red - Harbour value - Value used by the routine as indicated by the source.
+ * green - Harbour value - Value used by the routine as indicated by the source.
+ * blue - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The native RGB color value returned by the printing subsystem.
+ *
+ * Side Effects:
+ * No object state is changed; the native subsystem constructs the color value.
+ */
 METHOD SetRGB( red, green, blue ) CLASS HBPrinter
 
 RETURN rr_setrgb( red, green, blue )
 
 
+/*
+ * Routine: SetTextCharExtra()
+ *
+ * Purpose:
+ * Sets the extra character spacing after converting the requested spacing to device units.
+ *
+ * Parameters:
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The result returned by the underlying character-spacing operation.
+ *
+ * Side Effects:
+ * Changes character spacing in the printing subsystem.
+ */
 METHOD SetTextCharExtra( col ) CLASS HBPrinter
 
    LOCAL p1 := ::convert( { 0, 0 } ), p2 := ::convert( { 0, col } )
@@ -1281,11 +2362,41 @@ METHOD SetTextCharExtra( col ) CLASS HBPrinter
 RETURN rr_SetTextCharExtra( p2[ 2 ] - p1[ 2 ] )
 
 
+/*
+ * Routine: GetTextCharExtra()
+ *
+ * Purpose:
+ * Returns the current extra character spacing from the printing subsystem.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Numeric - The current character-spacing value.
+ *
+ * Side Effects:
+ * Reads the current character-spacing setting.
+ */
 METHOD GetTextCharExtra() CLASS HBPrinter
 
 RETURN rr_GetTextCharExtra()
 
 
+/*
+ * Routine: SetTextJustification()
+ *
+ * Purpose:
+ * Sets text justification spacing after converting the requested value to device units.
+ *
+ * Parameters:
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The result returned by the underlying text-justification operation.
+ *
+ * Side Effects:
+ * Changes text justification in the printing subsystem.
+ */
 METHOD SetTextJustification( col ) CLASS HBPrinter
 
    LOCAL p1 := ::convert( { 0, 0 } ), p2 := ::convert( { 0, col } )
@@ -1293,21 +2404,87 @@ METHOD SetTextJustification( col ) CLASS HBPrinter
 RETURN rr_SetTextJustification( p2[ 2 ] - p1[ 2 ] )
 
 
+/*
+ * Routine: GetTextJustification()
+ *
+ * Purpose:
+ * Returns the current text justification value from the printing subsystem.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Numeric - The current text-justification value.
+ *
+ * Side Effects:
+ * Reads the current text-justification setting.
+ */
 METHOD GetTextJustification() CLASS HBPrinter
 
 RETURN rr_GetTextJustification()
 
 
+/*
+ * Routine: SetTextAlign()
+ *
+ * Purpose:
+ * Sets the text alignment mode in the printing subsystem.
+ *
+ * Parameters:
+ * style - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The result returned by the underlying text-alignment operation.
+ *
+ * Side Effects:
+ * Changes text alignment in the printing subsystem.
+ */
 METHOD SetTextAlign( style ) CLASS HBPrinter
 
 RETURN rr_settextalign( style )
 
 
+/*
+ * Routine: GetTextAlign()
+ *
+ * Purpose:
+ * Returns the current text alignment mode.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Numeric - The current text-alignment value.
+ *
+ * Side Effects:
+ * Reads the current text-alignment setting.
+ */
 METHOD GetTextAlign() CLASS HBPrinter
 
 RETURN rr_gettextalign()
 
 
+/*
+ * Routine: Picture()
+ *
+ * Purpose:
+ * Draws a picture in the specified destination area with optional extension offsets.
+ *
+ * Parameters:
+ * row - Harbour value - Value used by the routine as indicated by the source.
+ * col - Harbour value - Value used by the routine as indicated by the source.
+ * torow - Harbour value - Value used by the routine as indicated by the source.
+ * tocol - Harbour value - Value used by the routine as indicated by the source.
+ * cpicture - Harbour value - Value used by the routine as indicated by the source.
+ * extrow - Harbour value - Value used by the routine as indicated by the source.
+ * extcol - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Renders the supplied picture through the printing subsystem.
+ */
 METHOD Picture( row, col, torow, tocol, cpicture, extrow, extcol ) CLASS HBPrinter
 
    LOCAL lp1 := ::convert( { row, col } ), lp2, lp3
@@ -1323,6 +2500,21 @@ METHOD Picture( row, col, torow, tocol, cpicture, extrow, extcol ) CLASS HBPrint
 RETURN self
 
 
+/*
+ * Routine: sayconvert()
+ *
+ * Purpose:
+ * Converts a single Harbour value to the character representation used by Say().
+ *
+ * Parameters:
+ * ltxt - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Character - The printable character representation of the supplied value; an unsupported type produces an empty string.
+ *
+ * Side Effects:
+ * Does not change external state.
+ */
 STATIC FUNCTION sayconvert( ltxt )
 
    DO CASE
@@ -1335,6 +2527,22 @@ STATIC FUNCTION sayconvert( ltxt )
 RETURN ""
 
 
+/*
+ * Routine: str2arr()
+ *
+ * Purpose:
+ * Splits a character list into an array using a character, numeric, or array delimiter specification.
+ *
+ * Parameters:
+ * cList - Harbour value - Value used by the routine as indicated by the source.
+ * cDelimiter - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Array - The array produced from the supplied list.
+ *
+ * Side Effects:
+ * Does not change external state other than its local parsing variables.
+ */
 STATIC FUNCTION str2arr( cList, cDelimiter )
 
    LOCAL nPos
@@ -1368,6 +2576,22 @@ STATIC FUNCTION str2arr( cList, cDelimiter )
 RETURN ( aList )
 
 #ifdef HB_DYNLIB
+/*
+ * Routine: NumAt()
+ *
+ * Purpose:
+ * Counts the occurrences of a search string within a larger string, using successive substring searches.
+ *
+ * Parameters:
+ * cSearch - Harbour value - Value used by the routine as indicated by the source.
+ * cString - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * Numeric - The number of occurrences found.
+ *
+ * Side Effects:
+ * Does not change external state.
+ */
 STATIC FUNCTION NumAt( cSearch, cString )
 
    LOCAL n := 0, nAt, nPos := 0
@@ -1381,6 +2605,21 @@ RETURN n
 
 #endif
 
+/*
+ * Routine: PrevThumb()
+ *
+ * Purpose:
+ * Updates the preview thumbnail page group or selects a thumbnail page when a thumbnail index is supplied.
+ *
+ * Parameters:
+ * nclick - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Updates preview thumbnail controls and the current preview page when applicable.
+ */
 METHOD PrevThumb( nclick ) CLASS HBPrinter
 
    LOCAL i, spage
@@ -1420,6 +2659,21 @@ METHOD PrevThumb( nclick ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: PrevShow()
+ *
+ * Purpose:
+ * Refreshes the displayed preview page, including zoom, scroll ranges, thumbnail state, and metafile rendering.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Updates preview image dimensions, scroll ranges, status text, and rendered metafile content.
+ */
 METHOD PrevShow() CLASS HBPrinter
 
    LOCAL spos := { 0, 0 }
@@ -1462,6 +2716,21 @@ METHOD PrevShow() CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: PrevPrint()
+ *
+ * Purpose:
+ * Prints either a selected preview page or the configured page range and copies, including the configured odd/even page options.
+ *
+ * Parameters:
+ * n1 - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Switches from preview to printing state and renders the selected page or configured page range/copies to the printer.
+ */
 METHOD PrevPrint( n1 ) CLASS HBPrinter
 
    LOCAL i, ilkop, toprint := .T.
@@ -1521,6 +2790,22 @@ METHOD PrevPrint( n1 ) CLASS HBPrinter
 
 RETURN self
 
+
+/*
+ * Routine: LangInit()
+ *
+ * Purpose:
+ * Builds the language-dependent text table used by the printer preview and print-options interface.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Array - The language text table used by the preview and printing dialogs.
+ *
+ * Side Effects:
+ * May initialize language-specific text according to the active compilation and runtime settings.
+ */
 
 STATIC FUNCTION LangInit
 
@@ -2202,6 +3487,21 @@ STATIC FUNCTION LangInit
 RETURN aLang
 
 
+/*
+ * Routine: Preview()
+ *
+ * Purpose:
+ * Creates and activates the HMG Extended preview interface for the generated preview metafiles.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * NIL - No meaningful return value; the preview interface is created and activated when preview data is available.
+ *
+ * Side Effects:
+ * Creates HMG Extended preview windows, controls, hotkeys, and thumbnail controls as configured, then activates the preview window.
+ */
 METHOD Preview() CLASS HBPrinter
 
    LOCAL i, pi := 1
@@ -2250,6 +3550,7 @@ METHOD Preview() CLASS HBPrinter
       ahs[ 1, 6 ] := ahs[ 1, 4 ] - ahs[ 1, 2 ] + 1
    ENDIF
 
+   // Main modal preview window: toolbar, status bar, page selector, and preview panes are hosted here.
    DEFINE WINDOW HBPREVIEW ;
          AT ahs[ 1, 1 ], ahs[ 1, 2 ] ;
          WIDTH ahs[ 1, 6 ] HEIGHT ahs[ 1, 5 ] ;
@@ -2314,6 +3615,7 @@ METHOD Preview() CLASS HBPrinter
    ENDIF
 #endif
 
+   // Preview child window containing the scrollable page image.
    DEFINE WINDOW HBPREVIEW1 ;
          WIDTH ahs[ 2, 6 ] - 15 HEIGHT ahs[ 2, 5 ] - ahs[ 3, 5 ] - ahs[ 4, 5 ] - 10 ;
          VIRTUAL WIDTH ahs[ 2, 6 ] - 5 ;
@@ -2344,6 +3646,7 @@ METHOD Preview() CLASS HBPrinter
       END WINDOW
 
       IF ::thumbnails .AND. iloscstron > 1
+         // Optional thumbnail pane; each thumbnail action selects the corresponding page.
          DEFINE WINDOW HBPREVIEW2 ;
                WIDTH ahs[ 2, 6 ] - 15 HEIGHT ahs[ 2, 5 ] - ahs[ 3, 5 ] - ahs[ 4, 5 ] - 10 ;
                TITLE aopisy[ 14 ] SPLITCHILD GRIPPERTEXT ".."
@@ -2398,6 +3701,21 @@ METHOD Preview() CLASS HBPrinter
 RETURN NIL
 
 
+/*
+ * Routine: PrevClose()
+ *
+ * Purpose:
+ * Closes the preview window and records whether preview was cancelled through the supplied flag.
+ *
+ * Parameters:
+ * lEsc - Harbour value - Value used by the routine as indicated by the source.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Records the escape/cancel state and releases the preview window.
+ */
 METHOD PrevClose( lEsc ) CLASS HBPrinter
 
    ::lEscaped := lEsc
@@ -2410,12 +3728,28 @@ METHOD PrevClose( lEsc ) CLASS HBPrinter
 RETURN self
 
 
+/*
+ * Routine: PrintOption()
+ *
+ * Purpose:
+ * Displays the print-options dialog when it is not already open and, when accepted, updates the selected page range, copy count, and print option.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Logical - True when the print-options dialog was accepted; false when it was cancelled or not opened.
+ *
+ * Side Effects:
+ * Creates and activates the modal print-options window when needed and updates print settings when accepted.
+ */
 METHOD PrintOption() CLASS HBPrinter
 
    LOCAL OKprint := .F.
 
    IF IsWindowDefined( PrOpt ) == .F.
 
+      // Modal print-options dialog used to validate and update the selected page range and copy count.
       DEFINE WINDOW PrOpt ;
          WIDTH 355 HEIGHT 168 ;
          TITLE aopisy[ 19 ] ;
@@ -2472,6 +3806,21 @@ METHOD PrintOption() CLASS HBPrinter
 RETURN OKPrint
 
 #ifdef _DEBUG_
+/*
+ * Routine: ReportData()
+ *
+ * Purpose:
+ * Writes the supplied diagnostic values to the debug report printer output.
+ *
+ * Parameters:
+ * l_x1 \ldots l_x6 - Any - Optional diagnostic values printed to the report.
+ *
+ * Returns:
+ * HBPrinter - The current printer object.
+ *
+ * Side Effects:
+ * Writes diagnostic output to hbprinter.rep and changes the Harbour printer/console state for that diagnostic operation.
+ */
 METHOD ReportData( l_x1, l_x2, l_x3, l_x4, l_x5, l_x6 ) CLASS HBPrinter
 
    SET PRINTER TO "hbprinter.rep" ADDITIVE
@@ -2518,6 +3867,22 @@ RETURN self
 #include "hbapi.h"
 #include "hbapifs.h"
 
+/*
+ * Routine: HB_FNAMENAME()
+ *
+ * Purpose:
+ * Returns the file-name component of a Harbour path.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Character - The file-name component returned by the Harbour file-name API.
+ *
+ * Side Effects:
+ * Allocates Harbour file-name parsing state internally and releases it before returning.
+ */
+
 HB_FUNC( HB_FNAMENAME )
 {
    PHB_FNAME pFilepath = hb_fsFNameSplit( hb_parcx( 1 ) );
@@ -2526,6 +3891,22 @@ HB_FUNC( HB_FNAMENAME )
    hb_xfree( pFilepath );
 }
 
+/*
+ * Routine: HB_FNAMEEXT()
+ *
+ * Purpose:
+ * Returns the extension component of a Harbour path.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Character - The extension returned by the Harbour file-name API.
+ *
+ * Side Effects:
+ * Allocates Harbour file-name parsing state internally and releases it before returning.
+ */
+
 HB_FUNC( HB_FNAMEEXT )
 {
    PHB_FNAME pFilepath = hb_fsFNameSplit( hb_parcx( 1 ) );
@@ -2533,6 +3914,22 @@ HB_FUNC( HB_FNAMEEXT )
    hb_retc( pFilepath->szExtension );
    hb_xfree( pFilepath );
 }
+
+/*
+ * Routine: HB_FNAMEEXTSET()
+ *
+ * Purpose:
+ * Returns a path with its extension replaced by the supplied extension.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Character - The merged path with the requested extension.
+ *
+ * Side Effects:
+ * Allocates Harbour file-name parsing state internally and releases it before returning.
+ */
 
 HB_FUNC( HB_FNAMEEXTSET )
 {
@@ -2543,6 +3940,22 @@ HB_FUNC( HB_FNAMEEXTSET )
    hb_retc( hb_fsFNameMerge( szPath, pFilepath ) );
    hb_xfree( pFilepath );
 }
+
+/*
+ * Routine: HB_FNAMEEXTSETDEF()
+ *
+ * Purpose:
+ * Returns a path with a default extension applied only when the path has no extension.
+ *
+ * Parameters:
+ * None.
+ *
+ * Returns:
+ * Character - The merged path with the default extension when required.
+ *
+ * Side Effects:
+ * Allocates Harbour file-name parsing state internally and releases it before returning.
+ */
 
 HB_FUNC( HB_FNAMEEXTSETDEF )
 {
@@ -2558,4 +3971,3 @@ HB_FUNC( HB_FNAMEEXTSETDEF )
 #pragma ENDDUMP
 
 #endif /* __XHARBOUR__ */
-

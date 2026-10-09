@@ -49,7 +49,7 @@
    author: Copyright 2016 (C) P.Chornyj <myorg63@mail.ru>
 */
 
-// Define `CINTERFACE` if it is not already defined; this flag controls interface definitions in C code
+// Define CINTERFACE if it is not already defined; this flag controls interface definitions in C code
 #ifndef CINTERFACE
 #define CINTERFACE
 #endif
@@ -333,7 +333,7 @@ static HBITMAP HMG_GdipLoadBitmap( const char *res_name, const char *res_type )
 
    if( Ok == status )
    {
-      ARGB  BkColor = 0xFF000000UL;       // TODO
+      ARGB  BkColor = 0x00000000UL;       // TODO
       if( NULL != fn_GdipCreateHBITMAPFromBitmap )
       {
          fn_GdipCreateHBITMAPFromBitmap( gpBitmap, &hBitmap, BkColor );
@@ -734,6 +734,7 @@ HB_EXPORT HBITMAP HMG_LoadPicture
    BITMAP   bm;
    LONG     bmWidth, bmHeight;
    HDC      hDC, memDC1, memDC2;
+   HB_BOOL  bUseAlpha = bAlphaFormat && Transparent && ScaleStretch;
 
    if( NULL == pszName )
    {
@@ -857,20 +858,18 @@ HB_EXPORT HBITMAP HMG_LoadPicture
       SetBrushOrgEx( memDC2, Point.x, Point.y, NULL );
    }
 
-   if( Transparent == 1 && bAlphaFormat == HB_FALSE )
+   if( bUseAlpha )
    {
-      TransparentBlt( memDC2, rect.left, rect.top, rect.right, rect.bottom, memDC1, 0, 0, bmWidth, bmHeight, GetPixel( memDC1, 0, 0 ) );
-   }
-   else if( Transparent == 1 || bAlphaFormat == HB_TRUE )
-   {
-      // TransparentBlt is supported for source bitmaps of 4 bits per pixel and 8 bits per pixel.
-      // Use AlphaBlend to specify 32 bits-per-pixel bitmaps with transparency.
       BLENDFUNCTION  ftn;
-      ftn.AlphaFormat = ( BYTE ) ( bAlphaFormat ? AC_SRC_ALPHA : 0 );
       ftn.BlendOp = AC_SRC_OVER;
       ftn.BlendFlags = 0;
       ftn.SourceConstantAlpha = ( BYTE ) iAlphaConstant;
+      ftn.AlphaFormat = AC_SRC_ALPHA;  // per-pixel alpha
       AlphaBlend( memDC2, rect.left, rect.top, rect.right, rect.bottom, memDC1, 0, 0, bmWidth, bmHeight, ftn );
+   }
+   else if( Transparent )
+   {
+      TransparentBlt( memDC2, rect.left, rect.top, rect.right, rect.bottom, memDC1, 0, 0, bmWidth, bmHeight, GetPixel( memDC1, 0, 0 ) );
    }
    else
    {
@@ -907,7 +906,7 @@ HB_EXPORT HBITMAP HMG_OleLoadPicturePath( const char *pszURLorPath )
    HRESULT  hres = E_FAIL;
    HBITMAP  hBitmap = NULL;
    HDC      memDC;
-   LONG     hmWidth, hmHeight;                  // HiMetric
+   LONG     hmWidth, hmHeight;         // HiMetric
    if( NULL != pszURLorPath )
    {
       LPOLESTR lpURLorPath = ( LPOLESTR ) ( LPCTSTR ) hb_mbtowc( pszURLorPath );
@@ -917,7 +916,7 @@ HB_EXPORT HBITMAP HMG_OleLoadPicturePath( const char *pszURLorPath )
 
    if( S_OK != hres )
    {
-      return hBitmap;                           // NULL
+      return hBitmap;                  // NULL
    }
 
    iPicture->lpVtbl->get_Width( iPicture, &hmWidth );
@@ -926,7 +925,7 @@ HB_EXPORT HBITMAP HMG_OleLoadPicturePath( const char *pszURLorPath )
    if( NULL != ( memDC = CreateCompatibleDC( NULL ) ) )
    {
       POINT Point;
-      INT   pxWidth, pxHeight;                  // Pixel
+      INT   pxWidth, pxHeight;         // Pixel
       GetBrushOrgEx( memDC, &Point );
       SetStretchBltMode( memDC, HALFTONE );
       SetBrushOrgEx( memDC, Point.x, Point.y, NULL );
@@ -964,8 +963,8 @@ HB_EXPORT HBITMAP HMG_OleLoadPicturePath( const char *pszURLorPath )
  */
 HB_FUNC( GPLUSGETENCODERSNUM )
 {
-   UINT  num = 0;                               // number of image encoders
-   UINT  size = 0;                              // size of the image encoder array in bytes
+   UINT  num = 0;                // number of image encoders
+   UINT  size = 0;               // size of the image encoder array in bytes
    fn_GdipGetImageEncodersSize( &num, &size );
    hmg_ret_UINT( num );
 }
@@ -1318,9 +1317,9 @@ HB_FUNC( C_SAVEHBITMAPTOFILE )
  */
 typedef struct
 {
-   WORD  idReserved;                            // must be 0
-   WORD  idType;                                // 1 = ICON, 2 = CURSOR
-   WORD  idCount;                               // number of images (and ICONDIRs)
+   WORD  idReserved;             // must be 0
+   WORD  idType;                 // 1 = ICON, 2 = CURSOR
+   WORD  idCount;                // number of images (and ICONDIRs)
 } ICONHEADER;
 
 /*
@@ -1347,10 +1346,10 @@ typedef struct
    BYTE  bHeight;
    BYTE  bColorCount;
    BYTE  bReserved;
-   WORD  wPlanes;                               // for cursors, this field = wXHotSpot
-   WORD  wBitCount;                             // for cursors, this field = wYHotSpot
+   WORD  wPlanes;                // for cursors, this field = wXHotSpot
+   WORD  wBitCount;              // for cursors, this field = wYHotSpot
    DWORD dwBytesInRes;
-   DWORD dwImageOffset;                         // file-offset to the start of ICONIMAGE
+   DWORD dwImageOffset;          // file-offset to the start of ICONIMAGE
 } ICONDIR;
 
 /*
@@ -1366,7 +1365,7 @@ typedef struct
  */
 typedef struct
 {
-   BITMAPINFOHEADER  biHeader;                  // header for color bitmap (no mask header)
+   BITMAPINFOHEADER  biHeader;   // header for color bitmap (no mask header)
 } ICONIMAGE;
 
 /*
@@ -1390,8 +1389,8 @@ static UINT WriteIconHeader( HANDLE hFile, int nImages )
    UINT        nWritten;
 
    // Setup the icon header
-   iconheader.idReserved = 0;                   // Must be 0
-   iconheader.idType = 1;                       // Type 1 = ICON (type 2 = CURSOR)
+   iconheader.idReserved = 0;    // Must be 0
+   iconheader.idType = 1;        // Type 1 = ICON (type 2 = CURSOR)
    iconheader.idCount = ( WORD ) nImages;       // number of ICONDIRs
 
    // Write the header to disk

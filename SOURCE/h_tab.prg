@@ -48,16 +48,56 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 #include "minigui.ch"
 #include "i_winuser.ch"
 
+// Compatibility layer for older Harbour/xHarbour compilers lacking Unicode string functions
 #if defined( __XHARBOUR__ ) .OR. ( __HARBOUR__ - 0 < 0x030200 )
   #xtranslate hb_UAt( <c>, <n> ) => At( <c>, <n> )
   #xtranslate hb_USubStr( <c>, <n> [, <e>] ) => SubStr( <c>, <n> [, <e>] )
 #endif
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _BeginTab
+ *
+ * Starts the definition block for a Tab control in the HMG GUI framework.
+ *
+ * Parameters:
+ *   ControlName     (C) - Unique identifier name for the Tab control.
+ *   ParentFormName  (C) - Name of the parent window or dialog.
+ *   row             (N) - Vertical position (y-coordinate) in pixels.
+ *   col             (N) - Horizontal position (x-coordinate) in pixels.
+ *   w               (N) - Width of the tab control in pixels.
+ *   h               (N) - Height of the tab control in pixels.
+ *   value           (N) - Initially selected tab page index (1-based, default 1).
+ *   f               (C) - Font face name.
+ *   s               (N) - Font size in points.
+ *   tooltip         (C|A) - Tooltip string or array of tooltip strings per tab page.
+ *   change          (C|B) - On-change event callback procedure or block.
+ *   buttons         (L) - Display tabs as push buttons style (TCS_BUTTONS).
+ *   flat            (L) - Flat button style (TCS_FLATBUTTONS).
+ *   hottrack        (L) - Enable visual hot tracking on tab hover (TCS_HOTTRACK).
+ *   vertical        (L) - Vertical tab layout (TCS_VERTICAL).
+ *   bottom          (L) - Place tabs at bottom/right edge (TCS_BOTTOM/TCS_RIGHT).
+ *   notabstop       (L) - Omit WS_TABSTOP flag from tab control window styles.
+ *   bold            (L) - Font bold attribute flag.
+ *   italic          (L) - Font italic attribute flag.
+ *   underline       (L) - Font underline attribute flag.
+ *   strikeout       (L) - Font strikeout attribute flag.
+ *   multiline       (L) - Support multiple rows/columns of tab headers (TCS_MULTILINE).
+ *   backcolor       (A) - Custom background colors/brushes definition array.
+ *   nId             (N) - Control ID for dialog template integration.
+ *   bInit           (B) - On-init execution code block.
+ *   NoTrans         (L) - Flag indicating image transparency setting.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Sets up global tab context variables (_HMG_ActiveTab*) and increments
+ *   _HMG_FrameLevel to maintain container layout hierarchy.
+ */
 FUNCTION _BeginTab( ControlName, ParentFormName, row, col, w, h, value, f, s, tooltip, change, buttons, flat, hottrack, vertical, bottom, notabstop, bold, italic, underline, strikeout, multiline, backcolor, nId, bInit, NoTrans )
-*-----------------------------------------------------------------------------*
    LOCAL aMnemonic := Array( 16 )
 
+   // Set default values for optional arguments
    __defaultNIL( @change, "" )
    hb_default( @buttons, .F. )
    hb_default( @Flat, .F. )
@@ -68,22 +108,26 @@ FUNCTION _BeginTab( ControlName, ParentFormName, row, col, w, h, value, f, s, to
    hb_default( @multiline, .F. )
    hb_default( @NoTrans, .F. )
 
+   // Prevent nesting of DEFINE TAB blocks
    IF _HMG_BeginTabActive
       MsgMiniGuiError( "DEFINE TAB Structures can't be nested." )
    ENDIF
 
+   // Inherit parent window name and default font attributes if inside window/dialog block
    IF _HMG_BeginWindowActive .OR. _HMG_BeginDialogActive
       ParentFormName := iif( _HMG_BeginDialogActive, _HMG_ActiveDialogName, _HMG_ActiveFormName )
       __defaultNIL( @f, _HMG_ActiveFontName )
       __defaultNIL( @s, _HMG_ActiveFontSize )
    ENDIF
 
+   // Adjust coordinates if tab is nested inside a container frame
    IF _HMG_FrameLevel > 0
       col  := col + _HMG_ActiveFrameCol [_HMG_FrameLevel]
       row  := row + _HMG_ActiveFrameRow [_HMG_FrameLevel]
       ParentFormName := _HMG_ActiveFrameParentFormName [_HMG_FrameLevel]
    ENDIF
 
+   // Store global context variables for tab initialization phase
    STATIC _HMG_lDialogInMemory AS GLOBAL VALUE _HMG_DialogInMemory, ;
       _HMG_bOnInit AS GLOBAL VALUE bInit, ;
       _HMG_ActiveTabImage_NoTransparent AS GLOBAL VALUE NoTrans
@@ -92,6 +136,7 @@ FUNCTION _BeginTab( ControlName, ParentFormName, row, col, w, h, value, f, s, to
       ParentFormName := _HMG_ActiveFormName
    ENDIF
 
+   // Auto-generate control name if placeholder "0" is provided
    IF ISCHAR ( ControlName ) .AND. ControlName == "0"
       ControlName := HMG_GetUniqueName()
    ENDIF
@@ -100,6 +145,7 @@ FUNCTION _BeginTab( ControlName, ParentFormName, row, col, w, h, value, f, s, to
       value := 1
    ENDIF
 
+   // Advance nesting level and initialize active tab tracking state
    _HMG_FrameLevel++
 
    _HMG_ActiveFrameParentFormName [_HMG_FrameLevel] := ParentFormName
@@ -138,15 +184,44 @@ FUNCTION _BeginTab( ControlName, ParentFormName, row, col, w, h, value, f, s, to
    _HMG_ActiveTabUnderline       := Underline
    _HMG_ActiveTabStrikeout       := Strikeout
 
+   // Generate dynamic code blocks for handling keyboard accelerators (mnemonics)
    aEval( aMnemonic, { |x, i| HB_SYMBOL_UNUSED( x ), aMnemonic[i] := &( '{|| _SetValue("' + ControlName + '","' + ParentFormName + '",' + hb_ntos(i) + ') }' ) } )
 
    _HMG_ActiveTabMnemonic := aMnemonic
 
 RETURN Nil
 
-*-----------------------------------------------------------------------------*
+/*
+ * STATIC FUNCTION _DefineTab
+ *
+ * Instantiates the underlying Windows tab control (SysTabControl32) and registers
+ * it in the HMG control registration structures.
+ *
+ * Parameters:
+ *   ControlName     (C) - Tab control name.
+ *   ParentFormName  (C) - Parent window/dialog name.
+ *   x, y, w, h      (N) - Position coordinates and dimensions.
+ *   aCaptions       (A) - List of tab page header captions.
+ *   aPageMap        (A) - Map of controls associated with each tab page.
+ *   value           (N) - Active tab page index.
+ *   fontname        (C) - Font face name.
+ *   fontsize        (N) - Font size in points.
+ *   tooltip         (C|A) - Control tooltip configuration.
+ *   change          (C|B) - On-change callback procedure or block.
+ *   Buttons..multiline (L) - Tab visual style flags.
+ *   backcolor       (A) - Color configuration array.
+ *   nId             (N) - Control ID.
+ *   bInit           (B) - On-init execution block.
+ *   NoTrans         (L) - Non-transparent bitmap flag.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Creates Win32 control handle, stores properties in global control vectors
+ *   (_HMG_aControl*), and executes attached initialization callbacks.
+ */
 STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, aPageMap, value, fontname, fontsize, tooltip, change, Buttons, Flat, HotTrack, Vertical, Bottom, notabstop, aMnemonic, bold, italic, underline, strikeout, Images, multiline, backcolor, nId, bInit, NoTrans )
-*-----------------------------------------------------------------------------*
    LOCAL ParentFormHandle, ControlHandle, FontHandle
    LOCAL hBrush := 0
    LOCAL mVar
@@ -169,6 +244,7 @@ STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, 
    hb_default( @bottom, .F. )
    hb_default( @notabstop, .F. )
 
+   // Validate existence of parent window and prevent duplicate control registration
    IF .NOT. _IsWindowDefined ( ParentFormName ) .AND. .NOT. lDialogInMemory
       MsgMiniGuiError( "Window: " + IFNIL( ParentFormName, "Parent", ParentFormName ) + " is not defined." )
    ENDIF
@@ -177,17 +253,20 @@ STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, 
       MsgMiniGuiError ( "Control: " + ControlName + " Of " + ParentFormName + " Already defined." )
    ENDIF
 
+   // Extract font attributes if existing font handle is supplied
    IF ( FontHandle := GetFontHandle( FontName ) ) != 0
       GetFontParamByRef( FontHandle, @FontName, @FontSize, @bold, @italic, @underline, @strikeout )
    ENDIF
 
+   // Determine if any tab pages use image icons
    FOR EACH mVar IN Images
-      IF ISCHARACTER( mVar ) .AND. !Empty( mVar )  // JD 11/05/2006
+      IF ISCHARACTER( mVar ) .AND. !Empty( mVar )
          ImageFlag := .T.
          EXIT
       ENDIF
    NEXT
 
+   // Windows visual styles require buttons mode for vertical tab alignment
    IF _HMG_IsThemed .AND. ! buttons
       vertical := .F.
    ENDIF
@@ -199,6 +278,7 @@ STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, 
 
       ParentFormHandle := _HMG_ActiveDialogHandle
 
+      // Build Windows standard window styles for dialog tab creation
       Style := WS_CHILD + WS_VISIBLE
 
       IF Buttons
@@ -222,8 +302,8 @@ STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, 
 
       nId := _HMG_ActiveTabnId
 
-      IF Len( _HMG_aDialogTemplate ) > 0        //Dialog Template
-         //          {{'ID',k/hwnd,class,Style,ExStyle,x,y,w,h,caption,HelpId,tooltip,font,size, bold, italic, underline, strikeout}}  --->_HMG_aDialogItems
+      // Append tab control item to dialog template structure
+      IF Len( _HMG_aDialogTemplate ) > 0
          blInit := {|x, y, z| InitDialogTab( x, y, z ) }
          AAdd( _HMG_aDialogItems, { _HMG_ActiveTabnId, k, "SysTabControl32", style, 0, ;
             _HMG_ActiveTabCol, _HMG_ActiveTabRow, _HMG_ActiveTabWidth, _HMG_ActiveTabHeight, "", ;
@@ -247,8 +327,10 @@ STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, 
 
       ParentFormHandle := GetFormHandle ( ParentFormName )
 
+      // Initialize API Win32 Tab Control
       ControlHandle := InitTabControl ( ParentFormHandle, 0, x, y, w, h, aCaptions, value, '', 0, Buttons, Flat, HotTrack, Vertical, Bottom, Multiline, ISARRAY( backcolor[1] ), notabstop )
 
+      // Apply solid background brush if custom color is defined
       IF ISARRAY( backcolor[1] )
          hBrush := CreateSolidBrush( backcolor[1][1], backcolor[1][2], backcolor[1][3] )
          SetWindowBrush( ControlHandle, hBrush )
@@ -268,12 +350,14 @@ STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, 
 
    ENDIF
 
+   // Register control variable reference
 #ifdef _NAMES_LIST_
    _SetNameList( mVar , k )
 #else
    Public &mVar. := k
 #endif
 
+   // Register tab control properties into internal framework array vectors
    _HMG_aControlType [k] :=  "TAB"
    _HMG_aControlNames [k] :=  ControlName
    _HMG_aControlParenthandles [k] :=  ParentFormHandle
@@ -315,10 +399,12 @@ STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, 
    _HMG_aControlMiscData1 [k] :=  { 0, ImageFlag, aMnemonic, Bottom, HotTrack, backcolor [2], backcolor [3], NoTrans }
    _HMG_aControlMiscData2 [k] :=  ''
 
-   IF Len( _HMG_aDialogTemplate ) == 0   //Dialog Template
+   // Run dialog tab setup if not building dynamic template
+   IF Len( _HMG_aDialogTemplate ) == 0
       InitDialogTab( ParentFormName, ControlHandle, k )
    ENDIF
 
+   // Notify object-oriented engine wrapper if enabled
    IF _HMG_lOOPEnabled
       Eval ( _HMG_bOnControlInit, k, mVar )
 #ifdef _OBJECT_
@@ -327,13 +413,28 @@ STATIC FUNCTION _DefineTab( ControlName, ParentFormName, x, y, w, h, aCaptions, 
 #endif
    ENDIF
 
+   // Execute user initialization code block
    Do_ControlEventProcedure ( bInit, k, ow, oc )
 
 RETURN Nil
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION InitDialogTab
+ *
+ * Configures tab pages, images, hotkeys, and initial page visibility for a tab control.
+ *
+ * Parameters:
+ *   ParentName    (C) - Parent window/dialog name.
+ *   ControlHandle (N) - HWND handle of the tab control.
+ *   k             (N) - Internal control index in HMG registration vectors.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Populates image lists, registers keyboard shortcuts, and hides controls on non-selected pages.
+ */
 FUNCTION InitDialogTab ( ParentName, ControlHandle, k )
-*-----------------------------------------------------------------------------*
    LOCAL aCaptions, aMnemonic
    LOCAL Caption
    LOCAL Image
@@ -355,7 +456,8 @@ FUNCTION InitDialogTab ( ParentName, ControlHandle, k )
 
    ENDIF
 
-   IF _HMG_aControlMiscData1 [k,2]  // ImageFlag
+   // Process and bind image lists if tab headers use bitmaps
+   IF _HMG_aControlMiscData1 [k,2]
       Caption := .F.
       _HMG_aControlHeadClick [k] := { 256, 256 }
 
@@ -379,6 +481,7 @@ FUNCTION InitDialogTab ( ParentName, ControlHandle, k )
          iif( Caption, _HMG_aControlHeadClick [k][1], NIL ), iif( Caption, _HMG_aControlHeadClick [k][2], NIL ) )
    ENDIF
 
+   // Register key mnemonics ('&') defined in tab captions
    FOR EACH c IN aCaptions
 
       Caption := Upper ( c )
@@ -389,7 +492,7 @@ FUNCTION InitDialogTab ( ParentName, ControlHandle, k )
 
    NEXT
 
-   // Hide all except page to show
+   // Hide child controls on inactive tab pages
    FOR EACH tabpage IN _HMG_ActiveTabFullPageMap
 
       IF hb_enumindex( tabpage ) != _HMG_aControlValue [k]
@@ -414,20 +517,32 @@ FUNCTION InitDialogTab ( ParentName, ControlHandle, k )
 
    NEXT
 
-   // JP 62
-   IF Len( _HMG_aDialogTemplate ) != 0 .AND. _HMG_aDialogTemplate[3]   // Modal
+   // Mark control as deleted if executing inside a modal dialog template
+   IF Len( _HMG_aDialogTemplate ) != 0 .AND. _HMG_aDialogTemplate[3]
       _HMG_aControlDeleted [k] := .T.
    ENDIF
 
 RETURN Nil
 
-*-----------------------------------------------------------------------------*
-FUNCTION UpdateTab ( y )  // Internal Function
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION UpdateTab
+ *
+ * Refreshes child control visibility based on the tab's currently selected page.
+ *
+ * Parameters:
+ *   y (N) - Internal control index of the tab control.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Hides controls belonging to unselected pages and displays controls on the active page.
+ */
+FUNCTION UpdateTab ( y )
    LOCAL tabpage
    LOCAL w, s, z
 
-   // Hide All Pages
+   // Hide controls across all tab pages
    FOR EACH tabpage IN _HMG_aControlPageMap [y]
 
       FOR EACH w IN tabpage
@@ -448,7 +563,7 @@ FUNCTION UpdateTab ( y )  // Internal Function
 
    NEXT
 
-   // Show New Active Page
+   // Query current tab selection from Windows API and show controls on active page
    s := TabCtrl_GetCurSel ( _HMG_aControlHandles [y] )
 
    IF s > 0
@@ -486,9 +601,21 @@ FUNCTION UpdateTab ( y )  // Internal Function
 RETURN Nil
 
 #ifdef _PANEL_
-*-----------------------------------------------------------------------------*
+/*
+ * STATIC FUNCTION _IsWindowVisibleFromHandle
+ *
+ * Checks if a given window handle corresponds to an active visible form in HMG.
+ *
+ * Parameters:
+ *   Handle (N) - HWND handle of the target window.
+ *
+ * Return:
+ *   Logical (.T. if window is visible, .F. otherwise).
+ *
+ * Side Effects:
+ *   None.
+ */
 STATIC FUNCTION _IsWindowVisibleFromHandle ( Handle )
-*-----------------------------------------------------------------------------*
    LOCAL lVisible As Logical
    LOCAL hForm
 
@@ -504,9 +631,21 @@ STATIC FUNCTION _IsWindowVisibleFromHandle ( Handle )
 RETURN lVisible
 #endif
 
-*-----------------------------------------------------------------------------*
+/*
+ * STATIC FUNCTION _IsControlVisibleFromHandle
+ *
+ * Determines whether a control with the given HWND handle is flagged as visible.
+ *
+ * Parameters:
+ *   nHandle (N) - Target control HWND handle.
+ *
+ * Return:
+ *   Logical (.T. if control is visible, .F. otherwise).
+ *
+ * Side Effects:
+ *   None.
+ */
 STATIC FUNCTION _IsControlVisibleFromHandle( nHandle )
-*-----------------------------------------------------------------------------*
    LOCAL xCandidateHandle
    LOCAL nIndex
 
@@ -518,11 +657,24 @@ STATIC FUNCTION _IsControlVisibleFromHandle( nHandle )
       ENDIF
    NEXT
 
-RETURN .F.   // not found : assume invisible
+RETURN .F.
 
-*-----------------------------------------------------------------------------*
+/*
+ * STATIC FUNCTION lHandlesMatch
+ *
+ * Compares a candidate window handle structure (scalar HWND or array) with a target handle.
+ *
+ * Parameters:
+ *   xCandidate (N|A) - Handle scalar value or array containing handle at index 1.
+ *   nHandle    (N)   - Target handle to match against.
+ *
+ * Return:
+ *   Logical (.T. if handles match, .F. otherwise).
+ *
+ * Side Effects:
+ *   None.
+ */
 STATIC FUNCTION lHandlesMatch( xCandidate, nHandle )
-*-----------------------------------------------------------------------------*
    IF ISNUMERIC( xCandidate )
       RETURN ( xCandidate == nHandle )
    ELSEIF ISARRAY( xCandidate )
@@ -531,24 +683,37 @@ STATIC FUNCTION lHandlesMatch( xCandidate, nHandle )
 
 RETURN .F.
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _BeginTabPage
+ *
+ * Opens a individual page definition within an active DEFINE TAB block.
+ *
+ * Parameters:
+ *   caption (C) - Header caption for the page tab.
+ *   image   (C) - Icon bitmap filename or resource name for the tab header.
+ *   tooltip (C) - Specific tooltip string for this page header.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Appends caption, image, and tooltip details to active tab tracking arrays.
+ */
 FUNCTION _BeginTabPage ( caption , image , tooltip )
-*-----------------------------------------------------------------------------*
-   // JD 11/05/2006
    hb_default( @Caption, "" )
    hb_default( @Image, "" )
 
    _HMG_ActiveTabPage++
    AAdd ( _HMG_ActiveTabCaptions , caption )
    AAdd ( _HMG_ActiveTabImages , image )
-   // JR
+
    IF ISCHARACTER( tooltip )
 
       IF ! ISARRAY( _HMG_ActiveTabTooltip )
 
          _HMG_ActiveTabTooltip := Array( _HMG_ActiveTabPage )
          AFill( _HMG_ActiveTabTooltip, '' )
-         _HMG_ActiveTabTooltip[ _HMG_ActiveTabPage ] := tooltip  // JP
+         _HMG_ActiveTabTooltip[ _HMG_ActiveTabPage ] := tooltip
 
       ELSE
 
@@ -560,7 +725,7 @@ FUNCTION _BeginTabPage ( caption , image , tooltip )
 
       AAdd( _HMG_ActiveTabTooltip, '' )
 
-   ELSE  // GF 11/04/2009
+   ELSE
 
       _HMG_ActiveTabTooltip := Array( _HMG_ActiveTabPage )
       AFill( _HMG_ActiveTabTooltip, '' )
@@ -569,9 +734,22 @@ FUNCTION _BeginTabPage ( caption , image , tooltip )
 
 RETURN Nil
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _EndTabPage
+ *
+ * Concludes the definition of an individual tab page and saves associated controls.
+ *
+ * Parameters:
+ *   None.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Pushes accumulated child controls into _HMG_ActiveTabFullPageMap and flushes
+ *   _HMG_ActiveTabCurrentPageMap.
+ */
 FUNCTION _EndTabPage()
-*-----------------------------------------------------------------------------*
 
    IF _SetGetGlobal( "_HMG_lDialogInMemory" )
       _HMG_aDialogItems [ Len( _HMG_aDialogItems ), 21 ] := .T.
@@ -582,9 +760,22 @@ FUNCTION _EndTabPage()
 
 RETURN Nil
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _EndTab
+ *
+ * Completes the DEFINE TAB block by instantiating the tab control and resetting active flags.
+ *
+ * Parameters:
+ *   None.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Calls _DefineTab with accumulated tab configuration parameters, cleans up global
+ *   variables, and decrements _HMG_FrameLevel.
+ */
 FUNCTION _EndTab()
-*-----------------------------------------------------------------------------*
 
    _DefineTab ( _HMG_ActiveTabName, _HMG_ActiveTabParentFormName, _HMG_ActiveTabCol, ;
       _HMG_ActiveTabRow, _HMG_ActiveTabWidth, _HMG_ActiveTabHeight, ;
@@ -603,9 +794,27 @@ FUNCTION _EndTab()
 
 RETURN Nil
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION _AddTabPage
+ *
+ * Dynamically inserts a new page into an existing Tab control at runtime.
+ *
+ * Parameters:
+ *   ControlName (C) - Target tab control identifier.
+ *   ParentForm  (C) - Parent window name.
+ *   Position    (N) - 1-based index position to insert the new page.
+ *   Caption     (C) - Header caption for the new page.
+ *   Image       (C) - Bitmap image filename or resource name.
+ *   tooltip     (C) - Tooltip string for the new page tab.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Modifies tab item count in Windows API, updates control page maps, recreates
+ *   image lists and mnemonics, and refreshes visible page state.
+ */
 FUNCTION _AddTabPage ( ControlName , ParentForm , Position , Caption , Image , tooltip )
-*-----------------------------------------------------------------------------*
    LOCAL aMnemonic
    LOCAL ImageFlag := .F.  // JD 11/05/2006
    LOCAL i , x , c
@@ -738,7 +947,7 @@ FUNCTION _DeleteTabPage ( ControlName , ParentForm , Position )
 
    IF i > 0
 
-      // Hide all ñontrols on a focused deleted page
+      // Hide all controls on a focused deleted page
       IF _GetValue ( ControlName , ParentForm ) == Position   // GF 07/17/2019
 
          FOR EACH NewValue IN _HMG_aControlPageMap [i]

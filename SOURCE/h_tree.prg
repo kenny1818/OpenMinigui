@@ -42,18 +42,65 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
    "HWGUI"
    Copyright 2001-2021 Alexander S.Kresin <alex@kresin.ru>
-
 ---------------------------------------------------------------------------*/
 
 #include "minigui.ch"
 #include "i_winuser.ch"
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: _DefineTree
+ *
+ * Purpose:
+ *    Initializes and creates a TreeView GUI control (SysTreeView32) within a form or dialog,
+ *    registering all control properties, event callbacks, styles, and image lists into HMG extended arrays.
+ *
+ * Parameters:
+ *    ControlName     (Character/Numeric) Name or ID of the tree control.
+ *    ParentFormName  (Character)         Name of the parent window or dialog containing the control.
+ *    row             (Numeric)           Vertical position in pixels relative to the parent.
+ *    col             (Numeric)           Horizontal position in pixels relative to the parent.
+ *    width           (Numeric)           Control width in pixels (default: 120).
+ *    height          (Numeric)           Control height in pixels (default: 120).
+ *    change          (Character/Block)   Procedure name or code block executed when selected item changes.
+ *    tooltip         (Character)         Tooltip text string associated with the control.
+ *    fontname        (Character)         Font family name.
+ *    fontsize        (Numeric)           Font size in points.
+ *    gotfocus        (Character/Block)   OnGotFocus event procedure or block.
+ *    lostfocus       (Character/Block)   OnLostFocus event procedure or block.
+ *    dblclick        (Character/Block)   OnDblClick event procedure or block.
+ *    break           (Logical)           Break flag when placed inside a SplitBox container.
+ *    value           (Numeric)           Initial selected item index or item ID.
+ *    HelpId          (Numeric)           Context Help ID assigned to the control.
+ *    aImgNode        (Array)             Array of bitmap resources/files for node icons {normal, selected}.
+ *    aImgItem        (Array)             Array of bitmap resources/files for item icons {normal, selected}.
+ *    noBot           (Logical)           If .T., suppresses lines at the root level (TVS_LINESATROOT).
+ *    bold            (Logical)           Font bold weight attribute.
+ *    italic          (Logical)           Font italic style attribute.
+ *    underline       (Logical)           Font underline attribute.
+ *    strikeout       (Logical)           Font strikeout attribute.
+ *    itemids         (Logical)           If .T., tree value property references custom numeric item IDs instead of 1-based array positions.
+ *    backcolor       (Array)             RGB color array for control background {r, g, b}.
+ *    fontcolor       (Array)             RGB color array for item text {r, g, b}.
+ *    linecolor       (Array)             RGB color array for tree structure lines {r, g, b}.
+ *    indent          (Numeric)           Indent width between parent and child nodes in pixels.
+ *    itemheight      (Numeric)           Explicit height of tree items in pixels.
+ *    nId             (Numeric)           Windows control ID.
+ *    bInit           (Block/Character)   Initialization code block executed upon creation.
+ *    NoTrans         (Logical)           If .T., disables bitmap background transparency (default: .F.).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    Allocates control slot in HMG global tracking arrays (_HMG_aControlType, etc.).
+ *    Updates global active tree state context (_HMG_ActiveTreeHandle, _HMG_ActiveTreeIndex).
+ *    Creates a public global variable representing the control.
+ *    Modifies Win32 visual tree control attributes and styles.
+ */
 FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
       change, tooltip, fontname, fontsize, gotfocus, lostfocus, dblclick, break, ;
       value, HelpId, aImgNode, aImgItem, noBot, bold, italic, underline, strikeout, ;
       itemids, backcolor, fontcolor, linecolor, indent, itemheight, nId, bInit, NoTrans )
-*-----------------------------------------------------------------------------*
    LOCAL ParentFormHandle, Controlhandle, FontHandle
    LOCAL ImgDefNode, ImgDefItem
    LOCAL aBitmaps := Array( 4 )
@@ -66,9 +113,11 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
    LOCAL oc := NIL, ow := NIL
 
 #ifdef _OBJECT_
+   // Fetch dialog unit to pixel conversion object reference when OOP is active
    ow := oDlu2Pixel()
 #endif
 
+   // Reset global active tree tracking variables prior to building nodes
    _HMG_ActiveTreeHandle := 0
    _HMG_NodeIndex := 1
    _HMG_NodeHandle[ 1 ] := 0
@@ -76,42 +125,50 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
    _HMG_aTreeIdMap := {}
    _HMG_ActiveTreeItemIds := itemids
 
+   // Resolve font attributes if a valid font handle is provided
    IF ( FontHandle := GetFontHandle( FontName ) ) != 0
       GetFontParamByRef( FontHandle, @FontName, @FontSize, @bold, @italic, @underline, @strikeout )
    ENDIF
 
+   // Inherit parent window/dialog context attributes during active construction
    IF _HMG_BeginWindowActive .OR. _HMG_BeginDialogActive
       ParentFormName := iif( _HMG_BeginDialogActive, _HMG_ActiveDialogName, _HMG_ActiveFormName )
       __defaultNIL( @FontName, _HMG_ActiveFontName )
       __defaultNIL( @FontSize, _HMG_ActiveFontSize )
    ENDIF
 
+   // Adjust coordinates if control resides inside a frame container
    IF _HMG_FrameLevel > 0 .AND. !_HMG_ParentWindowActive
       col := col + _HMG_ActiveFrameCol[ _HMG_FrameLevel ]
       row := row + _HMG_ActiveFrameRow[ _HMG_FrameLevel ]
       ParentFormName := _HMG_ActiveFrameParentFormName[ _HMG_FrameLevel ]
    ENDIF
 
+   // Initialize static global array storing custom cargo associated with tree nodes
    IF _SetGetGlobal( "_HMG_aNodeItemCargo" ) == NIL
       STATIC _HMG_aNodeItemCargo AS GLOBAL VALUE {}
    ENDIF
 
    STATIC _HMG_lDialogInMemory AS GLOBAL VALUE _HMG_DialogInMemory
 
+   // Validate existence of parent window
    IF .NOT. _IsWindowDefined ( ParentFormName ) .AND. .NOT. _HMG_DialogInMemory
       MsgMiniGuiError( "Window: " + IFNIL( ParentFormName, "Parent", ParentFormName ) + " is not defined." )
    ENDIF
 
+   // Auto-generate control name if placeholder string "0" is passed
    IF ISCHAR ( ControlName ) .AND. ControlName == "0"
       ControlName := HMG_GetUniqueName()
    ENDIF
 
+   // Prevent duplicate control definitions under the same parent
    IF _IsControlDefined ( ControlName, ParentFormName ) .AND. .NOT. _HMG_DialogInMemory
       MsgMiniGuiError ( "Control: " + ControlName + " Of " + ParentFormName + " Already defined." )
    ENDIF
 
    _HMG_ActiveTreeValue := IFNUMERIC ( Value, Value, 0 )
 
+   // Set standard defaults for optional parameters
    hb_default( @Width, 120 )
    hb_default( @Height, 120 )
    __defaultNIL( @change, "" )
@@ -135,7 +192,7 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
 
       IF Len( _HMG_aDialogTemplate ) > 0        // Dialog Template
 
-         // {{'ID',k/hwnd,class,Style,ExStyle,col,row,width,height,caption,HelpId,tooltip,font,size, bold, italic, underline, strikeout}}  --->_HMG_aDialogItems
+         // Register tree control entry into dialog template item list for deferred creation
          blInit := {| x, y, z| InitDialogTree( x, y, z ) }
          _HMG_aDialogTreeItem := {}
          AAdd( _HMG_aDialogItems, { nId, k, "SysTreeView32", style, 0, col, row, width, height, "", HelpId, tooltip, FontName, FontSize, bold, italic, underline, strikeout, blInit, _HMG_BeginTabActive, .F., _HMG_ActiveTabPage } )
@@ -151,27 +208,27 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
          Width := GetWindowWidth  ( Controlhandle )
          Height := GetWindowHeight ( Controlhandle )
 
-         ImgDefNode := iif( ISARRAY( aImgNode ), Len( aImgNode ), 0 )  // Tree+
-         ImgDefItem := iif( ISARRAY( aImgItem ), Len( aImgItem ), 0 )  // Tree+
+         ImgDefNode := iif( ISARRAY( aImgNode ), Len( aImgNode ), 0 )
+         ImgDefItem := iif( ISARRAY( aImgItem ), Len( aImgItem ), 0 )
 
          IF ImgDefNode > 0
 
-            aBitmaps[ 1 ] := aImgNode[ 1 ]             // Node default
-            aBitmaps[ 2 ] := aImgNode[ ImgDefNode ]
+            aBitmaps[ 1 ] := aImgNode[ 1 ]             // Default node image (unselected)
+            aBitmaps[ 2 ] := aImgNode[ ImgDefNode ]    // Node image (selected)
 
             IF ImgDefItem > 0
 
-               aBitmaps[ 3 ] := aImgItem[ 1 ]          // Item default
-               aBitmaps[ 4 ] := aImgItem[ ImgDefItem ]
+               aBitmaps[ 3 ] := aImgItem[ 1 ]          // Default item image (unselected)
+               aBitmaps[ 4 ] := aImgItem[ ImgDefItem ]    // Item image (selected)
 
             ELSE
 
-               aBitmaps[ 3 ] := aImgNode[ 1 ]          // Copy Node def if no Item def
+               aBitmaps[ 3 ] := aImgNode[ 1 ]          // Fallback to node images if item images are absent
                aBitmaps[ 4 ] := aImgNode[ ImgDefNode ]
 
             ENDIF
 
-            InitTreeViewBitmap( ControlHandle, aBitmaps, NoTrans ) // Init Bitmap List
+            InitTreeViewBitmap( ControlHandle, aBitmaps, NoTrans ) // Initialize native Win32 TreeView ImageList
 
          ENDIF
 
@@ -185,6 +242,7 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
 
       IF Row == NIL .OR. Col == NIL
 
+         // Auto-position control inside ReBar/SplitBox container
          IF _HMG_SplitLastControl == 'TOOLBAR'
             Break := .T.
          ENDIF
@@ -203,31 +261,32 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
 
       ELSE
 
+         // Standard Win32 TreeView control initialization
          ControlHandle := InitTree ( ParentFormHandle, col, row, width, height, 0, '', 0, iif( noBot, 1, 0 ) )
 
       ENDIF
 
-      ImgDefNode := iif( ISARRAY( aImgNode ), Len( aImgNode ), 0 )  // Tree+
-      ImgDefItem := iif( ISARRAY( aImgItem ), Len( aImgItem ), 0 )  // Tree+
+      ImgDefNode := iif( ISARRAY( aImgNode ), Len( aImgNode ), 0 )
+      ImgDefItem := iif( ISARRAY( aImgItem ), Len( aImgItem ), 0 )
 
       IF ImgDefNode > 0
 
-         aBitmaps[ 1 ] := aImgNode[ 1 ]             // Node default
-         aBitmaps[ 2 ] := aImgNode[ ImgDefNode ]
+         aBitmaps[ 1 ] := aImgNode[ 1 ]             // Default node image (unselected)
+         aBitmaps[ 2 ] := aImgNode[ ImgDefNode ]    // Node image (selected)
 
          IF ImgDefItem > 0
 
-            aBitmaps[ 3 ] := aImgItem[ 1 ]          // Item default
-            aBitmaps[ 4 ] := aImgItem[ ImgDefItem ]
+            aBitmaps[ 3 ] := aImgItem[ 1 ]          // Default item image (unselected)
+            aBitmaps[ 4 ] := aImgItem[ ImgDefItem ]    // Item image (selected)
 
          ELSE
 
-            aBitmaps[ 3 ] := aImgNode[ 1 ]          // Copy Node def if no Item def
+            aBitmaps[ 3 ] := aImgNode[ 1 ]          // Fallback to node images if item images are absent
             aBitmaps[ 4 ] := aImgNode[ ImgDefNode ]
 
          ENDIF
 
-         InitTreeViewBitmap ( ControlHandle, aBitmaps, NoTrans ) // Init Bitmap List
+         InitTreeViewBitmap ( ControlHandle, aBitmaps, NoTrans ) // Initialize native Win32 TreeView ImageList
 
       ENDIF
 
@@ -237,6 +296,7 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
 
    IF .NOT. _HMG_DialogInMemory
 
+      // Apply font settings
       IF FontHandle != 0
          _SetFontHandle ( ControlHandle, FontHandle )
       ELSE
@@ -245,6 +305,7 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
          FontHandle := _SetFont ( ControlHandle, FontName, FontSize, bold, italic, underline, strikeout )
       ENDIF
 
+      // Bind control handle to active parent Tab page if inside a Tab control
       IF _HMG_BeginTabActive
          AAdd ( _HMG_ActiveTabCurrentPageMap, ControlHandle )
       ENDIF
@@ -253,6 +314,7 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
          SetToolTip ( ControlHandle, tooltip, GetFormToolTipHandle ( ParentFormName ) )
       ENDIF
 
+      // Configure visual custom properties
       IF ISARRAY( backcolor )
          TreeView_SetBkColor( ControlHandle, backcolor )
       ENDIF
@@ -281,6 +343,7 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
    Public &mVar. := k
 #endif
 
+   // Populate global control data array slots
    _HMG_ActiveTreeIndex := k
 
    _HMG_aControlType[ k ] := "TREE"
@@ -324,6 +387,7 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
    _HMG_aControlMiscData1[ k ] := { 0, aImgNode, aImgItem, NoTrans }
    _HMG_aControlMiscData2[ k ] := ''
 
+   // Trigger object-oriented initialization bindings and init block call
    IF _HMG_lOOPEnabled
       Eval ( _HMG_bOnControlInit, k, mVar )
 #ifdef _OBJECT_
@@ -336,9 +400,27 @@ FUNCTION _DefineTree ( ControlName, ParentFormName, row, col, width, height, ;
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: InitDialogTree
+ *
+ * Purpose:
+ *    Deferred initialization handler for TreeView controls generated from dialog resource templates.
+ *    Populates queued nodes/items into the Win32 TreeView control upon dialog activation.
+ *
+ * Parameters:
+ *    ParentName     (Character) Name of the parent dialog window.
+ *    ControlHandle  (Numeric)   Win32 HWND handle of the tree view control.
+ *    k              (Numeric)   Internal control index in HMG registration arrays.
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    Inserts TreeView items into Win32 HWND handle.
+ *    Populates HMG tree mapping arrays (_HMG_aControlPageMap, _HMG_aControlPicture, _HMG_aControlHeadClick).
+ *    Sets initial selected item state.
+ */
 FUNCTION InitDialogTree( ParentName, ControlHandle, k )
-*-----------------------------------------------------------------------------*
    LOCAL aBitmaps := Array( 4 ), aImgNode, aImgItem, aImage
    LOCAL ImgDefNode, ImgDefItem
    LOCAL NoTrans
@@ -353,52 +435,57 @@ FUNCTION InitDialogTree( ParentName, ControlHandle, k )
 
    HB_SYMBOL_UNUSED( ParentName )
 
+   // Extract image list options from control metadata cache
    aImgNode := _HMG_aControlMiscData1[ k, 2 ]
    aImgItem := _HMG_aControlMiscData1[ k, 3 ]
    NoTrans  := _HMG_aControlMiscData1[ k, 4 ]
 
-   ImgDefNode := iif( ISARRAY( aImgNode ), Len( aImgNode ), 0 )  // Tree+
-   ImgDefItem := iif( ISARRAY( aImgItem ), Len( aImgItem ), 0 )  // Tree+
+   ImgDefNode := iif( ISARRAY( aImgNode ), Len( aImgNode ), 0 )
+   ImgDefItem := iif( ISARRAY( aImgItem ), Len( aImgItem ), 0 )
 
+   // Initialize bitmap image list for dialog tree
    IF ImgDefNode > 0
-      aBitmaps[ 1 ] := aImgNode[ 1 ]             // Node default
+      aBitmaps[ 1 ] := aImgNode[ 1 ]             // Default node image
       aBitmaps[ 2 ] := aImgNode[ ImgDefNode ]
       IF ImgDefItem > 0
-         aBitmaps[ 3 ] := aImgItem[ 1 ]          // Item default
+         aBitmaps[ 3 ] := aImgItem[ 1 ]          // Default item image
          aBitmaps[ 4 ] := aImgItem[ ImgDefItem ]
       ELSE
-         aBitmaps[ 3 ] := aImgNode[ 1 ]          // Copy Node def if no Item def
+         aBitmaps[ 3 ] := aImgNode[ 1 ]          // Fallback to node images
          aBitmaps[ 4 ] := aImgNode[ ImgDefNode ]
       ENDIF
-      InitTreeViewBitmap( ControlHandle, aBitmaps, NoTrans ) // Init Bitmap List
+      InitTreeViewBitmap( ControlHandle, aBitmaps, NoTrans )
    ENDIF
 
    _HMG_ActiveTreeHandle := ControlHandle
 
+   // Process queued dialog tree items and add them to Win32 control
    FOR n := 1 TO Len( _HMG_aDialogTreeItem )
       aImage     := _HMG_aDialogTreeItem[ n, 2 ]
       text       := _HMG_aDialogTreeItem[ n, 1 ]
       id         := _HMG_aDialogTreeItem[ n, 3 ]
       NodeIndex  := _HMG_aDialogTreeItem[ n, 4 ]
       Cargo      := _HMG_aDialogTreeItem[ n, 6 ]
-      ImgDef     := iif( ISARRAY( aImage ), Len( aImage ), 0 )  // Tree+
+      ImgDef     := iif( ISARRAY( aImage ), Len( aImage ), 0 )
       NodeHandle := _HMG_NodeHandle[ NodeIndex ]
 
       AAdd( _SetGetGlobal( "_HMG_aNodeItemCargo" ), Cargo )
 
+      // Determine bitmap image indices for tree item state
       IF ImgDef == 0
          IF _HMG_aDialogTreeItem[ n, 5 ] == 'NODE'
-            iUnsel := 0   // Pointer to defalut Node Bitmaps, no Bitmap loaded
+            iUnsel := 0   // Default node bitmap pointer
             iSel   := 1
          ELSE
-            iUnsel := 2   // Pointer to defalut Item Bitmaps, no Bitmap loaded
+            iUnsel := 2   // Default item bitmap pointer
             iSel   := 3
          ENDIF
       ELSE
          iUnSel := AddTreeViewBitmap( _HMG_ActiveTreeHandle, aImage[ 1 ], NoTrans ) - 1
          iSel := iif( ImgDef == 1, iUnSel, AddTreeViewBitmap( _HMG_ActiveTreeHandle, aImage[ 2 ], NoTrans ) - 1 )
-         // If only one bitmap in array iSel = iUnsel, only one Bitmap loaded
       ENDIF
+
+      // Insert node or leaf item into TreeView control
       IF _HMG_aDialogTreeItem[ n, 5 ] == 'NODE'
          _HMG_NodeHandle[ NodeIndex ] := AddTreeItem ( _HMG_ActiveTreeHandle, _HMG_NodeHandle[ NodeIndex - 1 ], text, iUnsel, iSel, Id, .T. )
          AAdd ( _HMG_aTreeMap, _HMG_NodeHandle[ NodeIndex ] )
@@ -410,10 +497,12 @@ FUNCTION InitDialogTree( ParentName, ControlHandle, k )
       ENDIF
    NEXT
 
+   // Bind temporary tree structure maps to global control index arrays
    _HMG_aControlPageMap  [ _HMG_ActiveTreeIndex ] := _HMG_aTreeMap
    _HMG_aControlPicture  [ _HMG_ActiveTreeIndex ] := _HMG_aTreeIdMap
    _HMG_aControlHeadClick[ _HMG_ActiveTreeIndex ] := AClone ( _SetGetGlobal( "_HMG_aNodeItemCargo" ) )
 
+   // Restore initial selection state
    IF _HMG_ActiveTreeValue > 0
 
       IF _HMG_ActiveTreeItemIds == .F.
@@ -422,16 +511,35 @@ FUNCTION InitDialogTree( ParentName, ControlHandle, k )
          TreeView_SelectItem ( _HMG_ActiveTreeHandle, _HMG_aTreeMap[ AScan ( _HMG_aTreeIdMap, _HMG_ActiveTreeValue ) ] )
       ENDIF
    ENDIF
-   // JP 62
-   IF Len( _HMG_aDialogTemplate ) != 0 .AND. _HMG_aDialogTemplate[ 3 ]  // Modal
+
+   // Mark control as deleted if template belongs to a modal dialog
+   IF Len( _HMG_aDialogTemplate ) != 0 .AND. _HMG_aDialogTemplate[ 3 ]
       _HMG_aControlDeleted[ k ] := .T.
    ENDIF
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: _DefineTreeNode
+ *
+ * Purpose:
+ *    Defines a parent node in the active tree context (NODE block construct).
+ *    Increments node level depth and appends item to tree hierarchy or dialog template buffer.
+ *
+ * Parameters:
+ *    text    (Character) Display text label of the tree node.
+ *    aImage  (Array)     Array of bitmap resource names/files {unselected, selected}.
+ *    Id      (Numeric)   Custom identifier for the node (default: 0).
+ *    Cargo   (Any)       Arbitrary user data attached to the node.
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    Increments global _HMG_NodeIndex depth.
+ *    Updates _HMG_NodeHandle, _HMG_aTreeMap, _HMG_aTreeIdMap, and _HMG_aNodeItemCargo.
+ */
 FUNCTION _DefineTreeNode ( text, aImage, Id, Cargo )
-*-----------------------------------------------------------------------------*
    LOCAL ImgDef, k
    LOCAL iUnSel, iSel
 
@@ -439,23 +547,24 @@ FUNCTION _DefineTreeNode ( text, aImage, Id, Cargo )
 
    IF _SetGetGlobal( "_HMG_lDialogInMemory" )
 
+      // Queue node definition into dialog template structure
       _HMG_NodeIndex++
       AAdd ( _HMG_aDialogTreeItem, { text, aImage, Id, _HMG_NodeIndex, 'NODE', Cargo } )
 
    ELSE
 
-      ImgDef := iif( ISARRAY( aImage ), Len( aImage ), 0 )  // Tree+
+      ImgDef := iif( ISARRAY( aImage ), Len( aImage ), 0 )
 
       IF ImgDef == 0
-         iUnsel := 0   // Pointer to defalut Node Bitmaps, no Bitmap loaded
-         iSel   := 1
+         iUnsel := 0   // Default unselected node bitmap index
+         iSel   := 1   // Default selected node bitmap index
       ELSE
          k := _HMG_ActiveTreeIndex
          iUnSel := AddTreeViewBitmap( _HMG_ActiveTreeHandle, aImage[ 1 ], _HMG_aControlMiscData1[ k, 4 ] ) - 1
          iSel := iif( ImgDef == 1, iUnSel, AddTreeViewBitmap( _HMG_ActiveTreeHandle, aImage[ 2 ], _HMG_aControlMiscData1[ k, 4 ] ) - 1 )
-         // If only one bitmap in array iSel = iUnsel, only one Bitmap loaded
       ENDIF
 
+      // Advance node level and insert node item into active Win32 TreeView control
       _HMG_NodeIndex++
       _HMG_NodeHandle[ _HMG_NodeIndex ] := AddTreeItem ( _HMG_ActiveTreeHandle, _HMG_NodeHandle[ _HMG_NodeIndex - 1 ], text, iUnsel, iSel, Id, .T. )
       AAdd ( _HMG_aTreeMap, _HMG_NodeHandle[ _HMG_NodeIndex ] )
@@ -466,17 +575,47 @@ FUNCTION _DefineTreeNode ( text, aImage, Id, Cargo )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: _EndTreeNode
+ *
+ * Purpose:
+ *    Closes current tree node definition block (END NODE) and steps up one level in tree depth.
+ *
+ * Parameters:
+ *    None
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    Decrements global _HMG_NodeIndex.
+ */
 FUNCTION _EndTreeNode()
-*-----------------------------------------------------------------------------*
 
    _HMG_NodeIndex--
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: _DefineTreeItem
+ *
+ * Purpose:
+ *    Defines a leaf item under the current active tree node context.
+ *
+ * Parameters:
+ *    text    (Character) Display text label of the tree item.
+ *    aImage  (Array)     Array of bitmap resource names/files {unselected, selected}.
+ *    Id      (Numeric)   Custom identifier for the item (default: 0).
+ *    Cargo   (Any)       Arbitrary user data attached to the leaf item.
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    Adds TVITEM handle under active node handle (_HMG_NodeHandle[_HMG_NodeIndex]).
+ *    Updates _HMG_aTreeMap, _HMG_aTreeIdMap, and _HMG_aNodeItemCargo arrays.
+ */
 FUNCTION _DefineTreeItem ( text, aImage, Id, Cargo )
-*-----------------------------------------------------------------------------*
    LOCAL handle
    LOCAL ImgDef, k
    LOCAL iUnSel, iSel
@@ -485,22 +624,23 @@ FUNCTION _DefineTreeItem ( text, aImage, Id, Cargo )
 
    IF _SetGetGlobal( "_HMG_lDialogInMemory" )
 
+      // Queue item definition into dialog template structure
       AAdd ( _HMG_aDialogTreeItem, { text, aImage, Id, _HMG_NodeIndex, 'ITEM', Cargo } )
 
    ELSE
 
-      ImgDef := iif( ISARRAY( aImage ), Len( aImage ), 0 )  // Tree+
+      ImgDef := iif( ISARRAY( aImage ), Len( aImage ), 0 )
 
       IF ImgDef == 0
-         iUnsel := 2   // Pointer to defalut Item Bitmaps, no Bitmap loaded
-         iSel   := 3
+         iUnsel := 2   // Default unselected item bitmap index
+         iSel   := 3   // Default selected item bitmap index
       ELSE
          k := _HMG_ActiveTreeIndex
          iUnSel := AddTreeViewBitmap( _HMG_ActiveTreeHandle, aImage[ 1 ], _HMG_aControlMiscData1[ k, 4 ] ) - 1
          iSel := iif( ImgDef == 1, iUnSel, AddTreeViewBitmap( _HMG_ActiveTreeHandle, aImage[ 2 ], _HMG_aControlMiscData1[ k, 4 ] ) - 1 )
-         // If only one bitmap in array iSel = iUnsel, only one Bitmap loaded
       ENDIF
 
+      // Insert leaf item under current parent node handle
       handle := AddTreeItem ( _HMG_ActiveTreeHandle, _HMG_NodeHandle[ _HMG_NodeIndex ], text, iUnSel, iSel, Id, .F. )
       AAdd ( _HMG_aTreeMap, Handle )
       AAdd ( _HMG_aTreeIdMap, Id )
@@ -510,17 +650,35 @@ FUNCTION _DefineTreeItem ( text, aImage, Id, Cargo )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: _EndTree
+ *
+ * Purpose:
+ *    Finalizes tree control definition block (END TREE), committing internal item mapping
+ *    arrays and selecting initial value property item if defined.
+ *
+ * Parameters:
+ *    None
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    Stores accumulated tree mapping arrays into global control registration slots.
+ *    Triggers TreeView item selection via TreeView_SelectItem.
+ *    Resets static global _HMG_aNodeItemCargo buffer.
+ */
 FUNCTION _EndTree()
-*-----------------------------------------------------------------------------*
    LOCAL aPos
 
    IF .NOT. _SetGetGlobal( "_HMG_lDialogInMemory" )
 
+      // Copy collected node mappings into master control arrays
       _HMG_aControlPageMap  [ _HMG_ActiveTreeIndex ] := _HMG_aTreeMap
       _HMG_aControlPicture  [ _HMG_ActiveTreeIndex ] := _HMG_aTreeIdMap
       _HMG_aControlHeadClick[ _HMG_ActiveTreeIndex ] := AClone( _SetGetGlobal( "_HMG_aNodeItemCargo" ) )
 
+      // Select initial tree item if value parameter was specified
       IF _HMG_ActiveTreeValue > 0
 
          IF _HMG_ActiveTreeItemIds == .F.
@@ -538,14 +696,31 @@ FUNCTION _EndTree()
       ENDIF
 
    ENDIF
-      
+
+   // Clear global temporary cargo array buffer
    ASSIGN GLOBAL _HMG_aNodeItemCargo := {}
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * PROCEDURE: _Collapse
+ *
+ * Purpose:
+ *    Collapses a target node item in a specified TreeView control, hiding its child elements.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the target tree control.
+ *    ParentForm   (Character) Name of the parent window or dialog.
+ *    nItem        (Numeric)   Sequential index or custom ID of the item to collapse.
+ *    lRecurse     (Logical)   If .T., recursively collapses all child subtrees (default: .F.).
+ *
+ * Return Value:
+ *    None
+ *
+ * Side Effects:
+ *    Sends TVM_EXPAND Win32 message with TVE_COLLAPSE flag to update visual UI state.
+ */
 PROCEDURE _Collapse ( ControlName, ParentForm, nItem, lRecurse )   // Dr. Claudio Soto (November 2013)
-*-----------------------------------------------------------------------------*
    LOCAL i, ItemHandle
 
    IF ( i := GetControlIndex( ControlName, ParentForm ) ) > 0
@@ -557,9 +732,25 @@ PROCEDURE _Collapse ( ControlName, ParentForm, nItem, lRecurse )   // Dr. Claudi
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * PROCEDURE: _Expand
+ *
+ * Purpose:
+ *    Expands a target node item in a specified TreeView control, displaying its child elements.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the target tree control.
+ *    ParentForm   (Character) Name of the parent window or dialog.
+ *    nItem        (Numeric)   Sequential index or custom ID of the item to expand.
+ *    lRecurse     (Logical)   If .T., recursively expands all child subtrees (default: .F.).
+ *
+ * Return Value:
+ *    None
+ *
+ * Side Effects:
+ *    Sends TVM_EXPAND Win32 message with TVE_EXPAND flag to update visual UI state.
+ */
 PROCEDURE _Expand ( ControlName, ParentForm, nItem, lRecurse )   // Dr. Claudio Soto (November 2013)
-*-----------------------------------------------------------------------------*
    LOCAL i, ItemHandle
 
    IF ( i := GetControlIndex( ControlName, ParentForm ) ) > 0
@@ -571,15 +762,31 @@ PROCEDURE _Expand ( ControlName, ParentForm, nItem, lRecurse )   // Dr. Claudio 
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetHandle
+ *
+ * Purpose:
+ *    Resolves the internal Win32 HTREEITEM handle corresponding to a logical item index or item ID.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    Item         (Numeric)   Logical index position or custom item ID.
+ *
+ * Return Value:
+ *    Numeric/Handle - Win32 HTREEITEM handle, or 0 if item is not found.
+ *
+ * Side Effects:
+ *    None.
+ */
 FUNCTION TreeItemGetHandle ( ControlName, ParentForm, Item )
-*-----------------------------------------------------------------------------*
    LOCAL ItemHandle := 0
    LOCAL Pos
    LOCAL i
 
    IF ( i := GetControlIndex( ControlName, ParentForm ) ) > 0
 
+      // Lookup handle by positional index vs custom ID key mapping
       IF _HMG_aControlInputMask [i] == .F.
          IF Item <= Len ( _HMG_aControlPageMap[ i ] )
             ItemHandle := _HMG_aControlPageMap[ i ][ Item ]
@@ -595,9 +802,23 @@ FUNCTION TreeItemGetHandle ( ControlName, ParentForm, Item )
 
 RETURN ItemHandle
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetRootValue
+ *
+ * Purpose:
+ *    Retrieves the positional index or custom ID of the root item in a TreeView control.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *
+ * Return Value:
+ *    Numeric - Positional index or custom ID of root item, or NIL if control/root does not exist.
+ *
+ * Side Effects:
+ *    Queries root HTREEITEM handle via TreeView_GetRoot.
+ */
 FUNCTION TreeItemGetRootValue ( ControlName, ParentForm )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle := GetControlHandle ( ControlName, ParentForm )
    LOCAL ItemHandle := TreeView_GetRoot ( nControlHandle )
    LOCAL nPos
@@ -616,9 +837,24 @@ FUNCTION TreeItemGetRootValue ( ControlName, ParentForm )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetParentValue
+ *
+ * Purpose:
+ *    Retrieves the positional index or custom ID of the parent node for a given tree item.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of target child item.
+ *
+ * Return Value:
+ *    Numeric - Positional index or custom ID of parent item, or NIL if target is root or not found.
+ *
+ * Side Effects:
+ *    Queries parent HTREEITEM handle via TreeView_GetParent.
+ */
 FUNCTION TreeItemGetParentValue ( ControlName , ParentForm , nItem )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle := GetControlHandle  ( ControlName, ParentForm )
    LOCAL ItemHandle := TreeView_GetParent ( nControlHandle, TreeItemGetHandle ( ControlName, ParentForm, nItem ) )
    LOCAL nPos
@@ -637,9 +873,23 @@ FUNCTION TreeItemGetParentValue ( ControlName , ParentForm , nItem )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetAllValues
+ *
+ * Purpose:
+ *    Returns an array containing all item indices or custom IDs present in a tree control.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *
+ * Return Value:
+ *    Array - List of all item position numbers or custom IDs, or NIL if tree is empty.
+ *
+ * Side Effects:
+ *    Queries total item count via TreeView_GetCount.
+ */
 FUNCTION TreeItemGetAllValues ( ControlName, ParentForm )
-*-----------------------------------------------------------------------------*
    LOCAL aAllValues := {}
    LOCAL k := 1
    LOCAL i
@@ -656,9 +906,24 @@ FUNCTION TreeItemGetAllValues ( ControlName, ParentForm )
 
 RETURN iif ( Empty( aAllValues ), NIL, aAllValues )
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetChildValues
+ *
+ * Purpose:
+ *    Returns an array of positional indices or custom IDs for immediate children of a tree node.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of target parent node.
+ *
+ * Return Value:
+ *    Array - List of child item values, or NIL if target node has no child items.
+ *
+ * Side Effects:
+ *    Iterates child sibling chain via TreeView_GetChild and TreeView_GetNextSibling.
+ */
 FUNCTION TreeItemGetChildValues ( ControlName, ParentForm, nItem )
-*-----------------------------------------------------------------------------*
    LOCAL ChildItem, aChildValues := {}
    LOCAL nControlHandle := GetControlHandle ( ControlName, ParentForm )
    LOCAL ItemHandle := TreeItemGetHandle ( ControlName, ParentForm, nItem )
@@ -676,9 +941,24 @@ FUNCTION TreeItemGetChildValues ( ControlName, ParentForm, nItem )
 
 RETURN iif ( Empty( aChildValues ), NIL, aChildValues )
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetSiblingValues
+ *
+ * Purpose:
+ *    Returns an array of positional indices or custom IDs for all siblings sharing the same parent as target item.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of target tree item.
+ *
+ * Return Value:
+ *    Array - List of sibling item values, or NIL if target item is root or has no siblings.
+ *
+ * Side Effects:
+ *    Traverses backward to first sibling and forward through TreeView sibling chain.
+ */
 FUNCTION TreeItemGetSiblingValues ( ControlName, ParentForm, nItem )
-*-----------------------------------------------------------------------------*
    LOCAL SiblingItem, FirstItem, aSiblingValues := {}
    LOCAL nControlHandle := GetControlHandle ( ControlName, ParentForm )
    LOCAL ItemHandle := TreeItemGetHandle ( ControlName, ParentForm, nItem )
@@ -686,12 +966,14 @@ FUNCTION TreeItemGetSiblingValues ( ControlName, ParentForm, nItem )
 
    IF ItemHandle <> TreeView_GetRoot ( nControlHandle )
       FirstItem := SiblingItem := ItemHandle
+      // Traverse backwards to locate head sibling
       WHILE SiblingItem <> 0
          SiblingItem := TreeView_GetPrevSibling ( nControlHandle, FirstItem )
          IF SiblingItem <> 0
             FirstItem := SiblingItem
          ENDIF
       ENDDO
+      // Collect all sibling handles forward
       SiblingItem := FirstItem
       WHILE SiblingItem <> 0
          IF _HMG_aControlInputMask[ i ] == .F.
@@ -705,9 +987,23 @@ FUNCTION TreeItemGetSiblingValues ( ControlName, ParentForm, nItem )
 
 RETURN iif ( Empty( aSiblingValues ), NIL, aSiblingValues )
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetFirstItemValue
+ *
+ * Purpose:
+ *    Retrieves the positional index or custom ID of the very first item defined in the tree control.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *
+ * Return Value:
+ *    Numeric - Value of first item (1 or first custom ID), or NIL if tree is empty.
+ *
+ * Side Effects:
+ *    None.
+ */
 FUNCTION TreeItemGetFirstItemValue ( ControlName, ParentForm )
-*-----------------------------------------------------------------------------*
    LOCAL nIndex := GetControlIndex ( ControlName, ParentForm )
    LOCAL nPos := 1
    LOCAL nID
@@ -723,9 +1019,28 @@ FUNCTION TreeItemGetFirstItemValue ( ControlName, ParentForm )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * PROCEDURE: TreeItemSort
+ *
+ * Purpose:
+ *    Sorts child nodes under a given tree item using custom comparison criteria.
+ *
+ * Parameters:
+ *    cTreeName        (Character) Name of the tree control.
+ *    cFormName        (Character) Name of the parent window.
+ *    nItem            (Numeric)   Positional index or ID of target parent node (NIL sorts root).
+ *    lRecurse         (Logical)   If .T., recursively sorts subtrees (default: .T.).
+ *    lCaseSensitive   (Logical)   If .T., performs case-sensitive sorting (default: .F.).
+ *    lAscendingOrder  (Logical)   If .T., sorts ascending; if .F., descending (default: .T.).
+ *    nNodePosition    (Numeric)   Node placement flag (e.g., TREESORTNODE_MIX, TREESORTNODE_TOP, TREESORTNODE_FIRST).
+ *
+ * Return Value:
+ *    None
+ *
+ * Side Effects:
+ *    Visually rearranges TreeView nodes via C callback comparison TreeView_SortChildrenRecursiveCB.
+ */
 PROCEDURE TreeItemSort ( cTreeName, cFormName, nItem, lRecurse, lCaseSensitive, lAscendingOrder, nNodePosition )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle, nItemHandle
 
    nControlHandle := GetControlHandle ( cTreeName, cFormName )
@@ -745,64 +1060,173 @@ PROCEDURE TreeItemSort ( cTreeName, cFormName, nItem, lRecurse, lCaseSensitive, 
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemIsTrueNode
+ *
+ * Purpose:
+ *    Checks whether a specific tree item currently contains child nodes.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of tree item.
+ *
+ * Return Value:
+ *    Logical - .T. if item has one or more child nodes, .F. if leaf item or empty.
+ *
+ * Side Effects:
+ *    Calls TreeView_GetChild API.
+ */
 FUNCTION TreeItemIsTrueNode ( ControlName , ParentForm , nItem )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle := GetControlHandle ( ControlName , ParentForm )
    LOCAL ItemHandle := TreeItemGetHandle ( ControlName , ParentForm , nItem )
 
 RETURN ! Empty( TreeView_GetChild ( nControlHandle, ItemHandle ) )
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemSetNodeFlag
+ *
+ * Purpose:
+ *    Sets or clears the internal node flag state on a specified tree item.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of target item.
+ *    lNodeFlag    (Logical)   .T. to flag as node, .F. as leaf.
+ *
+ * Return Value:
+ *    Logical/Numeric - Status code returned by C-level TREEITEM_SETNODEFLAG.
+ *
+ * Side Effects:
+ *    Modifies internal TVITEM state flags.
+ */
 FUNCTION TreeItemSetNodeFlag ( ControlName , ParentForm , nItem , lNodeFlag )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle := GetControlHandle ( ControlName , ParentForm )
    LOCAL ItemHandle := TreeItemGetHandle ( ControlName , ParentForm , nItem )
 
 RETURN TREEITEM_SETNODEFLAG ( nControlHandle, ItemHandle, lNodeFlag )
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetNodeFlag
+ *
+ * Purpose:
+ *    Retrieves the internal node flag state for a specified tree item.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of target item.
+ *
+ * Return Value:
+ *    Logical - .T. if node flag is set, .F. otherwise.
+ *
+ * Side Effects:
+ *    Queries internal TVITEM state via C-level TREEITEM_GETNODEFLAG.
+ */
 FUNCTION TreeItemGetNodeFlag ( ControlName , ParentForm , nItem )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle := GetControlHandle ( ControlName , ParentForm )
    LOCAL ItemHandle := TreeItemGetHandle ( ControlName , ParentForm , nItem )
 
 RETURN TREEITEM_GETNODEFLAG ( nControlHandle, ItemHandle )
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemSetImageIndex
+ *
+ * Purpose:
+ *    Updates unselected and selected image list indices associated with a specific tree item.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of tree item.
+ *    aSel         (Array)     Array containing image indices {nUnselectedImage, nSelectedImage}.
+ *
+ * Return Value:
+ *    Logical/Numeric - Status result of C-level TREEITEM_SETIMAGEINDEX function.
+ *
+ * Side Effects:
+ *    Modifies visual icons displayed for target item in TreeView control.
+ */
 FUNCTION TreeItemSetImageIndex ( ControlName , ParentForm , nItem , aSel )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle := GetControlHandle ( ControlName , ParentForm )
    LOCAL ItemHandle := TreeItemGetHandle ( ControlName , ParentForm , nItem )
 
 RETURN TREEITEM_SETIMAGEINDEX ( nControlHandle , ItemHandle , aSel[1] , aSel[2] )
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemGetImageIndex
+ *
+ * Purpose:
+ *    Retrieves current image list indices for unselected and selected states of a tree item.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of tree item.
+ *
+ * Return Value:
+ *    Array/Numeric - Image index structure returned by C-level TREEITEM_GETIMAGEINDEX.
+ *
+ * Side Effects:
+ *    None.
+ */
 FUNCTION TreeItemGetImageIndex ( ControlName , ParentForm , nItem )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle := GetControlHandle ( ControlName , ParentForm )
    LOCAL ItemHandle := TreeItemGetHandle ( ControlName , ParentForm , nItem )
 
 RETURN TREEITEM_GETIMAGEINDEX ( nControlHandle , ItemHandle )
 
 #define TVIS_EXPANDED   32
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeItemIsExpand
+ *
+ * Purpose:
+ *    Determines whether a tree node is currently expanded.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    nItem        (Numeric)   Positional index or custom ID of target item.
+ *
+ * Return Value:
+ *    Logical - .T. if node is expanded (TVIS_EXPANDED state present), .F. if collapsed.
+ *
+ * Side Effects:
+ *    Queries item state mask via TreeView_GetItemState.
+ */
 FUNCTION TreeItemIsExpand ( ControlName , ParentForm , nItem )
-*-----------------------------------------------------------------------------*
    LOCAL nControlHandle := GetControlHandle  ( ControlName , ParentForm )
    LOCAL ItemHandle     := TreeItemGetHandle ( ControlName , ParentForm , nItem )
 
 RETURN ( AND ( TreeView_GetItemState ( nControlHandle, ItemHandle, TVIS_EXPANDED ), TVIS_EXPANDED ) == TVIS_EXPANDED )
 
-*-----------------------------------------------------------------------------*
+/*
+ * FUNCTION: TreeNodeItemCargo
+ *
+ * Purpose:
+ *    Gets or sets custom user data (cargo) stored with a specific tree item.
+ *
+ * Parameters:
+ *    ControlName  (Character) Name of the tree control.
+ *    ParentForm   (Character) Name of the parent window.
+ *    Item         (Numeric)   Positional index or custom ID of tree item.
+ *    Value        (Any)       Optional new cargo value to assign.
+ *
+ * Return Value:
+ *    Any - Existing (or previous) cargo value assigned to the item.
+ *
+ * Side Effects:
+ *    Updates internal data array _HMG_aControlHeadClick for the given control index when Value is passed.
+ */
 FUNCTION TreeNodeItemCargo( ControlName, ParentForm, Item, Value )
-*-----------------------------------------------------------------------------*
    LOCAL xData
    LOCAL Pos
    LOCAL i
 
    IF ( i := GetControlIndex( ControlName, ParentForm ) ) > 0
 
+      // Retrieve/update cargo entry by positional index vs custom ID mapping
       IF _HMG_aControlInputMask [i] == .F.
 
          IF Item > 0 .AND. Item <= Len ( _HMG_aControlHeadClick[ i ] )
@@ -826,3 +1250,183 @@ FUNCTION TreeNodeItemCargo( ControlName, ParentForm, Item, Value )
    ENDIF
    
 RETURN xData
+
+/*
+ * FUNCTION: TreeBuildFromArray
+ *
+ * Purpose:
+ *    Builds a TREE control hierarchy dynamically from a multi-column parent-child data array.
+ *
+ * Parameters:
+ *    aData       (Array)     Two-dimensional source array containing tree records.
+ *    nIdCol      (Numeric)   Column index containing unique item ID (default: 1).
+ *    nTextCol    (Numeric)   Column index containing display text string (default: 2).
+ *    nParentCol  (Numeric)   Column index containing parent item ID (default: 3).
+ *    nImageCol   (Numeric)   Optional column index containing image array {cNode, cSel} (default: 0).
+ *    nCargoCol   (Numeric)   Optional column index containing cargo value (default: 0).
+ *    bIsNode     (Block)     Optional code block {|aRow, lHasChildren| ... } returning .T. for NODE, .F. for ITEM.
+ *                            If NIL, records with children default to NODEs.
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    Invokes __TreeBuildBranch to populate active tree construct, calls _EndTree() to store item cargo.
+ */
+FUNCTION TreeBuildFromArray( aData, ;
+                             nIdCol, ;
+                             nTextCol, ;
+                             nParentCol, ;
+                             nImageCol, ;
+                             nCargoCol, ;
+                             bIsNode )
+
+   LOCAL hChildren := {=>}
+   LOCAL hParents  := {=>}
+   LOCAL cParent
+   LOCAL i
+
+   hb_default( @nIdCol,     1 )
+   hb_default( @nTextCol,   2 )
+   hb_default( @nParentCol, 3 )
+   hb_default( @nImageCol,  0 )
+   hb_default( @nCargoCol,  0 )
+   hb_default( @bIsNode,    NIL )
+
+   /* Index parent-child relationships into fast Hash tables */
+
+   FOR i := 1 TO Len( aData )
+
+      cParent := AllTrim( hb_ValToStr( aData[ i ][ nParentCol ] ) )
+
+      IF ! hb_HHasKey( hChildren, cParent )
+         hChildren[ cParent ] := {}
+      ENDIF
+
+      AAdd( hChildren[ cParent ], i )
+
+      IF ! Empty( cParent )
+         hParents[ cParent ] := .T.
+      ENDIF
+
+   NEXT
+
+   // Recursively construct tree branches starting from root parent ""
+   __TreeBuildBranch( ;
+      "", ;
+      aData, ;
+      hChildren, ;
+      hParents, ;
+      nIdCol, ;
+      nTextCol, ;
+      nImageCol, ;
+      nCargoCol, ;
+      bIsNode )
+
+   IF nCargoCol > 0 .AND. ! _HMG_BeginWindowActive
+      _EndTree()
+   ENDIF
+
+RETURN NIL
+
+/*
+ * STATIC PROCEDURE: __TreeBuildBranch
+ *
+ * Purpose:
+ *    Internal recursive helper procedure that traverses child hash structures and issues
+ *    _DefineTreeNode and _DefineTreeItem calls to build hierarchical tree levels.
+ *
+ * Parameters:
+ *    cParentID   (Character) Parent ID key currently being processed.
+ *    aData       (Array)     Two-dimensional source array.
+ *    hChildren   (Hash)      Hash index mapping parent IDs to array row numbers.
+ *    hParents    (Hash)      Hash set tracking all parent ID occurrences.
+ *    nIdCol      (Numeric)   Column index for ID value.
+ *    nTextCol    (Numeric)   Column index for display text.
+ *    nImageCol   (Numeric)   Column index for image definitions.
+ *    nCargoCol   (Numeric)   Column index for item cargo.
+ *    bIsNode     (Block)     Code block evaluating whether row is treated as node or leaf.
+ *
+ * Return Value:
+ *    None
+ *
+ * Side Effects:
+ *    Calls _DefineTreeNode, __TreeBuildBranch recursively, _EndTreeNode, and _DefineTreeItem.
+ */
+STATIC PROCEDURE __TreeBuildBranch( ;
+      cParentID, ;
+      aData, ;
+      hChildren, ;
+      hParents, ;
+      nIdCol, ;
+      nTextCol, ;
+      nImageCol, ;
+      nCargoCol, ;
+      bIsNode )
+
+   LOCAL aList
+   LOCAL nRow
+   LOCAL cID
+   LOCAL aImage
+   LOCAL Cargo
+   LOCAL lHasChildren
+   LOCAL lNode
+
+   aList := hb_HGetDef( hChildren, cParentID, {} )
+
+   FOR EACH nRow IN aList
+
+      cID := AllTrim( hb_ValToStr( aData[ nRow ][ nIdCol ] ) )
+
+      lHasChildren := hb_HHasKey( hParents, cID )
+
+      // Determine node vs leaf item classification
+      IF HB_ISBLOCK( bIsNode )
+         lNode := Eval( bIsNode, aData[ nRow ], lHasChildren )
+      ELSE
+         lNode := lHasChildren
+      ENDIF
+
+      aImage := iif( nImageCol > 0, ;
+                     aData[ nRow ][ nImageCol ], ;
+                     NIL )
+
+      Cargo := iif( nCargoCol > 0, ;
+                    aData[ nRow ][ nCargoCol ], ;
+                    NIL )
+
+      IF lNode
+
+         _DefineTreeNode( ;
+            aData[ nRow ][ nTextCol ], ;
+            aImage, ;
+            nRow, ;
+            Cargo )
+
+         // Process nested sub-branches recursively
+         __TreeBuildBranch( ;
+            cID, ;
+            aData, ;
+            hChildren, ;
+            hParents, ;
+            nIdCol, ;
+            nTextCol, ;
+            nImageCol, ;
+            nCargoCol, ;
+            bIsNode )
+
+         _EndTreeNode()
+
+      ELSE
+
+         _DefineTreeItem( ;
+            aData[ nRow ][ nTextCol ], ;
+            aImage, ;
+            nRow, ;
+            Cargo )
+
+      ENDIF
+
+   NEXT
+
+RETURN

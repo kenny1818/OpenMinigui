@@ -42,14 +42,15 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
    "HWGUI"
    Copyright 2001-2021 Alexander S.Kresin <alex@kresin.ru>
-
  ----------------------------------------------------------------------------*/
+
 #include "minigui.ch"
 #include "error.ch"
 #include "fileio.ch"
 #include "hbmemvar.ch"
 #include "hbver.ch"
 
+// xHarbour compatibility: Explicitly request database functions required for dynamic macro evaluation.
 #ifdef __XHARBOUR__
    REQUEST Select, Alias, RecNo, DbFilter, DbRelation, IndexOrd, IndexKey
 #endif
@@ -57,31 +58,34 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 #ifdef _TSBROWSE_
    MEMVAR _TSB_aControlhWnd
 #endif
+
 /*-----------------------------------------------------------------------------*
 PROCEDURE ErrorSys
 *------------------------------------------------------------------------------*
-*
 *  Description:
-*     Initializes the error handling system by setting the error block and configuring the error log file.
+*     Initializes the application's runtime error handling subsystem.
 *
 *  Parameters:
-*     None
+*     None.
 *
 *  Return Value:
-*     None
+*     None.
 *
 *  Purpose:
-*     This procedure is called at the start of the application to set up the global error handling mechanism.
-*     It defines the ErrorBlock, which is a code block that will be executed whenever an error occurs.
-*     The ErrorBlock calls the DefError function to handle the error.
-*     It also sets the output log file for Harbour's output logging (_SET_HBOUTLOG) and includes version information.
-*     This ensures that all errors are caught and logged for debugging purposes.
+*     Harbour automatically executes ErrorSys at program startup prior to MAIN.
+*     This procedure registers HMG Extended's custom error block handler using
+*     ErrorBlock() to intercept unhandled system runtime exceptions and route
+*     them to DefError(). It also initializes runtime debug log locations.
 *
-*  Notes:
-*     The #ifndef __XHARBOUR__ block is used to conditionally compile the code based on the Harbour compiler being used.
-*     This is necessary because xHarbour may have different requirements for error logging.
+*  Side Effects:
+*     - Global ErrorBlock handler is redirected to DefError().
+*     - Sets system-level output logging paths (_SET_HBOUTLOG) under standard Harbour.
 *
-*/
+*  Design Rationale:
+*     Overriding the default standard Clipper/Harbour console error handler ensures
+*     gui-native modal error dialogues and detailed HTML crash reports are produced
+*     instead of abruptly closing or dropping to a console window.
+*------------------------------------------------------------------------------*/
 PROCEDURE ErrorSys
    ErrorBlock( { | oError | DefError( oError ) } )
 #ifndef __XHARBOUR__
@@ -94,48 +98,54 @@ RETURN
 /*-----------------------------------------------------------------------------*
 STATIC FUNCTION DefError( oError )
 *------------------------------------------------------------------------------*
-*
 *  Description:
-*     Handles a specific error object, logging details and displaying an error message to the user.
+*     Core exception trap and handler called by the error code block.
 *
 *  Parameters:
-*     oError - An error object containing information about the error that occurred.
+*     oError (Object) - Standard Harbour Exception Object containing runtime context
+*                       (e.g., genCode, subCode, subsystem, description, operation).
 *
 *  Return Value:
-*     .F. -  Indicates that the error was handled and the application should exit.  In some specific cases (division by zero, lock error, database open error, append lock error), it may return 0 or .T. to allow the program to continue.
+*     Logical (.T./.F.) or Numeric (0):
+*     - Returns 0 on zero division if substitute is permitted.
+*     - Returns .T. on record locking retry.
+*     - Returns .F. on fatal unrecoverable errors to indicate termination.
 *
 *  Purpose:
-*     This function is the core error handler for the application. It receives an error object, extracts relevant information,
-*     logs the error details to an HTML file, and displays a user-friendly error message.  It also handles specific error conditions
-*     like division by zero, database lock errors, and file open errors, providing appropriate responses.
-*     The function aims to provide comprehensive error reporting to aid in debugging and maintenance.
+*     Determines whether an exception is recoverable (e.g., zero division, database
+*     file lock contention). If non-recoverable, it gathers call stack data, formats
+*     an HTML log entry, alerts the end user via GUI dialogue, and terminates the process.
 *
-*  Notes:
-*     The function uses HTML formatting to create a readable error log file.  It also retrieves system information and the call stack to provide
-*     context for the error.  The _lShowDetailError() function controls whether a detailed error message is displayed to the user.
-*     The function calls ExitProcess() to terminate the application after handling the error.
-*
-*/
+*  Side Effects:
+*     - May alter global SET CENTURY status temporarily during log generation.
+*     - Writes detailed system/workarea/stack statistics to the HTML log file.
+*     - Displays a modal GUI error dialog to the user.
+*     - Calls ExitProcess() to safely force process termination on fatal errors.
+*------------------------------------------------------------------------------*/
 STATIC FUNCTION DefError( oError )
+   // Save current century display setting to prevent string date formatting errors during log generation.
    LOCAL lOldSetState := ( Len( DToC( Date() ) ) == 10 )
    LOCAL cText
    LOCAL HtmArch
    LOCAL HtmText
    LOCAL n
 
-   // By default, division by zero results in zero
+   // 1. Recoverable Exception: Division by zero.
+   // Default behavior is substituting 0 as the result to prevent application crashing.
    IF oError:genCode == EG_ZERODIV .AND. ;
          oError:canSubstitute
       RETURN 0
    ENDIF
 
-   // By default, retry on RDD lock error failure
+   // 2. Recoverable Exception: Database Record/File Lock failure.
+   // Returning .T. signals the RDD to retry the lock operation.
    IF oError:genCode == EG_LOCK .AND. ;
          oError:canRetry
       RETURN .T.
    ENDIF
 
-   // Set NetErr() of there was a database open error
+   // 3. Database Open Error (e.g., File Sharing Violation OS Code 32).
+   // Sets NetErr(.T.) and returns .F. to allow application code to handle the failure gracefully.
    IF oError:genCode == EG_OPEN .AND. ;
          oError:osCode == 32 .AND. ;
          oError:canDefault
@@ -143,20 +153,25 @@ STATIC FUNCTION DefError( oError )
       RETURN .F.
    ENDIF
 
-   // Set NetErr() if there was a lock error on dbAppend()
+   // 4. Database Append Lock Error on dbAppend().
+   // Sets NetErr(.T.) so application code can test for lock acquisition failure.
    IF oError:genCode == EG_APPENDLOCK .AND. ;
          oError:canDefault
       NetErr( .T. )
       RETURN .F.
    ENDIF
 
+   // Ensure dates in stacktrace and system metrics use 4-digit years (YYYY-MM-DD).
    IF ! lOldSetState
       SET CENTURY ON
    ENDIF
 
+   // Open or initialize the HTML log file stream.
    HtmArch := Html_ErrorLog()
+   // Create human-readable core error string.
    cText := ErrorMessage( oError )
 
+   // Begin HTML error log entry container block.
    Html_RawText( HtmArch, '<div class="record">' )
    Html_RawText( HtmArch, '<p class="updated">' )
    Html_LineText( HtmArch, 'Date: <span class="date">' + DToC( Date() ) + '</span> ' + 'Time: <span class="time">' + Time() + '</span>' )
@@ -167,10 +182,12 @@ STATIC FUNCTION DefError( oError )
    Html_RawText( HtmArch, '</p>' )
    cText += CRLF + CRLF
 
+   // Render collapsable call stack section in HTML output using standard <details> element.
    HTML_RawText( HtmArch, "<details><summary>" )
    HTML_RawText( HtmArch, PadC( " Stack Trace ", 79, "-" ) )
    HTML_RawText( HtmArch, '<br/></summary><span class="stacktrace">' )
 
+   // Walk the execution stack upwards starting at depth 2 (skipping DefError itself).
    n := 1
    WHILE ! Empty( ProcName( ++n ) )
       HtmText := "Called from " + ProcName( n ) + "(" + hb_ntos( ProcLine( n ) ) + ")" + ;
@@ -181,18 +198,23 @@ STATIC FUNCTION DefError( oError )
 
    Html_RawText( HtmArch, "</span></details>" )
 
+   // Restore original date format setting.
    SET CENTURY ( lOldSetState )
 
+   // Write environment, workarea, and variable diagnostics if detailed log option is active.
    IF _lShowDetailError()
       ErrorLog( HtmArch, oError )
    ENDIF
 
+   // Finalize HTML block.
    Html_Line( HtmArch )
    Html_RawText( HtmArch, '</div>' )
    Html_End( HtmArch )
 
+   // Display GUI dialog with error description to end user.
    ShowError( cText, oError )
 
+   // Force immediate OS termination of current process to prevent undefined state/corruption.
    ExitProcess()
 
 RETURN .F.
@@ -200,26 +222,23 @@ RETURN .F.
 /*-----------------------------------------------------------------------------*
 STATIC FUNCTION ErrorMessage( oError )
 *------------------------------------------------------------------------------*
-*
 *  Description:
-*     Formats an error message string from an error object.
+*     Formats an exception object into a textual summary.
 *
 *  Parameters:
-*     oError - An error object containing information about the error.
+*     oError (Object) - Exception object raised by Harbour runtime.
 *
 *  Return Value:
-*     A character string containing the formatted error message.
+*     cMessage (Character) - Multi-line string with structured error description,
+*                            OS error translation, and caller parameters.
 *
 *  Purpose:
-*     This function takes an error object and constructs a human-readable error message string.
-*     It includes the error severity, subsystem, error code, description, filename or operation, and OS error code (if available).
-*     The function is used to create a concise and informative error message for display to the user or logging to a file.
+*     Constructs uniform error text containing subsystem names, numerical codes,
+*     file names, failed operations, system OS error messages, and passed arguments.
 *
-*  Notes:
-*     The function uses a DO CASE statement to determine whether to include the filename or operation in the error message.
-*     It also iterates through the error arguments (if any) and includes them in the message.
-*
-*/
+*  Side Effects:
+*     None.
+*------------------------------------------------------------------------------*/
 STATIC FUNCTION ErrorMessage( oError )
    // start error message
    LOCAL cMessage := iif( oError:severity > ES_WARNING, "Error", "Warning" ) + " "
@@ -275,29 +294,28 @@ RETURN cMessage
 /*-----------------------------------------------------------------------------*
 STATIC PROCEDURE ShowError( cErrorMessage, oError )
 *------------------------------------------------------------------------------*
-*
 *  Description:
-*     Displays an error message to the user, either as a detailed alert or a simple message box.
+*     Renders GUI alert dialog to display exception details to the user.
 *
 *  Parameters:
-*     cErrorMessage - The full error message string to display.
-*     oError - The error object (used for less detailed error messages).
+*     cErrorMessage (Character) - Complete exception message including stacktrace.
+*     oError        (Object)    - Original error object.
 *
 *  Return Value:
-*     None
+*     None.
 *
 *  Purpose:
-*     This procedure is responsible for presenting the error information to the user.
-*     It checks a global variable (_HMG_ShowError) to determine if error display is enabled.
-*     It also checks the _lShowDetailError() function to determine whether to display the full error message or a simplified version.
-*     The error is displayed either using an AlertStop (for detailed errors) or a MsgStop (for simple errors).
-*     It also allows for custom initialization and exit code blocks to be executed before and after the error display.
+*     Handles presenting GUI alert boxes to the user. Supports customizable
+*     color schemes, callbacks (_HMG_bOnErrorInit, _HMG_bOnErrorExit), dynamic 
+*     dialog styling, and fallback display options. Prevent recursive dialog display 
+*     using dynamic global variable flags.
 *
-*  Notes:
-*     The procedure uses global variables to control the error display behavior.  It also uses conditional compilation (#ifdef _TSBROWSE_)
-*     to handle specific cases related to the TSBrowse control.  The procedure sets the ErrorLevel to 1 to indicate that an error has occurred.
-*
-*/
+*  Side Effects:
+*     - Resets active TSBrowse handle control arrays if TSBrowse library is active.
+*     - Invokes global initialization/termination blocks if defined.
+*     - Sets process error level to 1 via ErrorLevel(1).
+*     - Destroys all currently open GUI windows via ReleaseAllWindows().
+*------------------------------------------------------------------------------*/
 STATIC PROCEDURE ShowError( cErrorMessage, oError )
    LOCAL cMsg := ""
    LOCAL bInit
@@ -379,29 +397,25 @@ RETURN
 /*-----------------------------------------------------------------------------*
 STATIC PROCEDURE ErrorLog( nHandle, oErr )
 *------------------------------------------------------------------------------*
-*
 *  Description:
-*     Logs detailed system and error information to an HTML file.
+*     Appends diagnostic system metrics, workarea statistics, and memory variables 
+*     to the HTML log file stream.
 *
 *  Parameters:
-*     nHandle - The file handle of the HTML file to write to.
-*     oErr - The error object containing information about the error.
+*     nHandle (Numeric/Pointer) - File handle or VFS stream pointer to opened HTML log file.
+*     oErr    (Object)          - Exception object being processed.
 *
 *  Return Value:
-*     None
+*     None.
 *
 *  Purpose:
-*     This procedure writes detailed system and error information to an HTML file.
-*     It includes information about the workstation, user, CPU, memory, disk space, operating system,
-*     Harbour and MiniGUI versions, compiler, and various SET settings.  It also includes information about the current work area
-*     and the error object itself.  The function is used to create a comprehensive error log for debugging purposes.
+*     Generates comprehensive diagnostic details inside standard HTML <details> blocks.
+*     Includes CPU stats, OS version, Harbour build date, open workareas (alias, recno, 
+*     filters, order), active environment SET flags, and public/private memory variables.
 *
-*  Notes:
-*     The procedure uses conditional compilation (#ifdef __XHARBOUR__) to handle differences between Harbour and xHarbour.
-*     It also uses the hb_WAEval() function to iterate through all work areas and retrieve information about each one.
-*     The procedure includes information about available memory variables to aid in debugging memory-related issues.
-*
-*/
+*  Side Effects:
+*     Writes multiple lines to the HTML log file handle.
+*------------------------------------------------------------------------------*/
 STATIC PROCEDURE ErrorLog( nHandle, oErr )
    STATIC _lAddError := .T.
 #ifndef __XHARBOUR__
@@ -442,7 +456,7 @@ STATIC PROCEDURE ErrorLog( nHandle, oErr )
       Html_LineText( nHandle, "C/C++ compiler.....: " + hb_Compiler() )
 #ifdef __XHARBOUR__
       Html_LineText( nHandle, "Multi Threading....: " + iif( Hb_MultiThread(), "YES", "NO" ) )
-      Html_LineText( nHandle, "VM Optimization....: " + strvalue( hb_VMMode() ) )
+      Html_LineText( nHandle, "VM Optimization....: " + iif( hb_VMMode() == 1, "YES", "NO" ) )
 
       IF Type( "Select()" ) == "UI" .OR. Type( "Select()" ) == "N"
          Html_LineText( nHandle, "" )
@@ -645,27 +659,23 @@ STATIC PROCEDURE ErrorLog( nHandle, oErr )
 RETURN
 
 /*-----------------------------------------------------------------------------*
-FUNCTION strvalue( c, l )
+STATIC FUNCTION strvalue( c, l )
 *------------------------------------------------------------------------------*
 *  Description:
-*     Converts a value of various data types to a string representation.
+*     Safe type conversion utility converting values of any basic data type to string.
 *
 *  Parameters:
-*     c - The value to convert. Can be of type Character, Memo, Numeric, Date, or Logical.
-*     l - (Optional) A logical value used only when 'c' is a Logical type.  If .T., uses "ON"/"OFF" for true/false. If .F. or omitted, uses ".T."/".F.".
+*     c (Any)     - Value to convert (Character, Memo, Numeric, Date, or Logical).
+*     l (Logical) - Optional flag for logical types. If .T., formats logical as "ON"/"OFF".
+*                   If .F. or omitted, formats logical as ".T."/".F.".
 *
 *  Return Value:
-*     A string representation of the input value 'c'. Returns an empty string if the data type of 'c' is not handled.
+*     (Character) - String representation of input parameter 'c'.
 *
 *  Purpose:
-*     This function provides a unified way to convert different data types into strings for display or storage.
-*     It handles Character, Memo, Numeric, Date, and Logical types, providing specific formatting for each.
-*     The 'l' parameter allows for customizing the string representation of logical values.
-*
-*  Notes:
-*     The function uses a SWITCH statement to determine the data type of the input value.
-*     The hb_defaultValue() function is used to provide a default value for the optional 'l' parameter.
-*/
+*     Prevents type mismatch runtime errors when concatenating dynamically typed
+*     variables or environmental flags into log messages.
+*------------------------------------------------------------------------------*/
 STATIC FUNCTION strvalue( c, l )
 
    SWITCH ValType( c )
@@ -682,28 +692,22 @@ RETURN ""
 FUNCTION _lShowDetailError( lNewValue )
 *------------------------------------------------------------------------------*
 *  Description:
-*     Enables or disables the display of detailed error information.
+*     Getter/Setter for controlling error detail display level.
 *
 *  Parameters:
-*     lNewValue - A logical value indicating whether to show detailed error information.
-*                   .T. enables detailed error display, .F. disables it.
+*     lNewValue (Logical, optional) - Pass .T. to enable full stacktrace/system metrics
+*                                     in UI alerts, or .F. for simplified error messages.
 *
 *  Return Value:
-*     The previous logical value indicating whether detailed error information was being displayed.
+*     lOldValue (Logical) - The previous state of the detailed error display flag.
 *
 *  Purpose:
-*     This function controls the level of detail shown in error messages.  It allows the application to
-*     switch between displaying concise error messages (for end-users) and detailed error messages
-*     (for debugging purposes).  It uses a global variable to store the current setting.
+*     Allows developers to toggle between concise user-facing error dialogs and
+*     detailed diagnostic displays intended for debugging.
 *
 *  Side Effects:
-*     Modifies a global variable named "_HMG" + ProcName() to store the error detail setting.
-*
-*  Notes:
-*     The function uses _AddNewGlobal to create the global variable if it doesn't exist.
-*     The ProcName() function is used to dynamically generate the name of the global variable,
-*     making it specific to this function.
-*/
+*     Creates or updates dynamic global variable `_HMG_LSHOWDETAILERROR`.
+*------------------------------------------------------------------------------*/
 FUNCTION _lShowDetailError( lNewValue )
    LOCAL cVarName := "_HMG" + ProcName()
    LOCAL lOldValue := _AddNewGlobal( cVarName, .T. )
@@ -718,23 +722,20 @@ RETURN lOldValue
 FUNCTION HTML_ERRORLOG()
 *------------------------------------------------------------------------------*
 *  Description:
-*     Creates or opens an HTML file for logging errors.
+*     Creates or opens the designated HTML error log file for appending.
 *
 *  Parameters:
-*     None
+*     None.
 *
 *  Return Value:
-*     A file handle (numeric in xHarbour/older Harbour, NIL in newer Harbour) to the opened HTML error log file, or -1/NIL if the file could not be opened or error logging is disabled.
+*     HtmArch (Numeric/Pointer) - Low-level file handle or VFS pointer to target log file.
+*                                 Returns -1 or NIL on failure or if logging is disabled.
 *
 *  Purpose:
-*     This function manages the creation and opening of an HTML file used for logging application errors.
-*     It checks if error logging is enabled and either creates a new file or opens an existing one for appending error information.
-*     The HTML format allows for easy viewing of the error log in a web browser.
-*
-*  Notes:
-*     The function uses preprocessor directives (#if defined...) to handle differences between xHarbour/older Harbour and newer Harbour versions regarding file handling functions.
-*     The __HTML_INSERT_OFFSET() function is used to determine the position to insert new error information before the closing </BODY></HTML> tags.
-*/
+*     Ensures the HTML error log document exists. If absent, initializes it using
+*     HTML_INI(). If present, opens the file for write access and repositions the
+*     file pointer right before closing HTML markup tags via __HTML_INSERT_OFFSET().
+*------------------------------------------------------------------------------*/
 FUNCTION HTML_ERRORLOG()
    LOCAL HtmArch
    LOCAL cErrorLogFile := _GetErrorlogFile()
@@ -771,25 +772,19 @@ RETURN ( HtmArch )
 FUNCTION HTML_INI( ARCH, TITLE )
 *------------------------------------------------------------------------------*
 *  Description:
-*     Initializes an HTML file for error logging by creating the file and writing the initial HTML structure.
+*     Creates a new HTML error log file and populates it with HTML skeleton templates.
 *
 *  Parameters:
-*     ARCH  - The file name (including path) of the HTML file to create.
-*     TITLE - The title to be displayed in the HTML page's title bar and heading.
+*     ARCH  (Character) - File path where HTML log should be created.
+*     TITLE (Character) - Document title string to insert into HTML head/header.
 *
 *  Return Value:
-*     A file handle (numeric in xHarbour/older Harbour, NIL in newer Harbour) to the newly created HTML file, or -1/NIL if the file could not be created or error logging is disabled.
+*     HtmArch (Numeric/Pointer) - File handle of newly created log file, or -1/NIL on error.
 *
 *  Purpose:
-*     This function creates a new HTML file and writes the basic HTML structure (DOCTYPE, HTML, HEAD, BODY tags)
-*     along with the specified title.  It's used to initialize the error log file before writing error messages.
-*     The function also handles character encoding (UTF-8) if the system code page is set to UTF-8.
-*
-*  Notes:
-*     The function uses preprocessor directives (#if defined...) to handle differences between xHarbour/older Harbour and newer Harbour versions regarding file handling functions.
-*     The __HTML_BODY_TEMPLATE() function returns a base64-encoded string containing the basic HTML structure.
-*     The StrTran() function is used to replace placeholders in the HTML template with the provided title and character encoding.
-*/
+*     Initializes standard HTML boilerplate markup, embedded CSS styles, and client-side
+*     JavaScript filtering logic by decoding the base64 HTML template.
+*------------------------------------------------------------------------------*/
 FUNCTION HTML_INI( ARCH, TITLE )
    LOCAL HtmArch := -1, cTemplate
 
@@ -822,21 +817,18 @@ RETURN ( HtmArch )
 PROCEDURE HTML_RAWTEXT( HTMARCH, LINEA )
 *------------------------------------------------------------------------------*
 *  Description:
-*     Writes a line of raw text to an HTML file without any HTML formatting.
+*     Appends plain text directly to the open HTML file stream.
 *
 *  Parameters:
-*     HTMARCH - The file handle (numeric in xHarbour/older Harbour, NIL in newer Harbour) of the opened HTML file.
-*     LINEA   - The string to write to the file.
+*     HTMARCH (Numeric/Pointer) - Active file handle or VFS handle.
+*     LINEA   (Character)       - String buffer to write.
+*
+*  Return Value:
+*     None.
 *
 *  Purpose:
-*     This procedure writes a given string to the specified HTML file. It's used for writing plain text content
-*     to the error log without any HTML tags or formatting.  It appends a carriage return and line feed (CRLF)
-*     to the end of the line.
-*
-*  Notes:
-*     The function uses preprocessor directives (#if defined...) to handle differences between xHarbour/older Harbour and newer Harbour versions regarding file handling functions.
-*     The RTrim() function is used to remove trailing spaces from the input string.
-*/
+*     Writes unformatted text or HTML structural elements followed by CRLF line endings.
+*------------------------------------------------------------------------------*/
 PROCEDURE HTML_RAWTEXT( HTMARCH, LINEA )
 #if defined( __XHARBOUR__ ) .OR. ( __HARBOUR__ - 0 < 0x030200 )
    IF HTMARCH > 0 .AND. IsErrorLogActive()
@@ -853,21 +845,18 @@ RETURN
 PROCEDURE HTML_LINETEXT( HTMARCH, LINEA )
 *------------------------------------------------------------------------------*
 *  Description:
-*     Writes a line of text to an HTML file, adding a line break (<BR>) tag.
+*     Appends a text string formatted with an HTML line break tag (<BR>).
 *
 *  Parameters:
-*     HTMARCH - The file handle (numeric in xHarbour/older Harbour, NIL in newer Harbour) of the opened HTML file.
-*     LINEA   - The string to write to the file.
+*     HTMARCH (Numeric/Pointer) - Active log file handle.
+*     LINEA   (Character)       - Text line content.
+*
+*  Return Value:
+*     None.
 *
 *  Purpose:
-*     This procedure writes a given string to the specified HTML file, adding an HTML line break tag (<BR>)
-*     at the end of the line. This ensures that each line of text is displayed on a new line in the HTML output.
-*     It's used for writing formatted text content to the error log.
-*
-*  Notes:
-*     The function uses preprocessor directives (#if defined...) to handle differences between xHarbour/older Harbour and newer Harbour versions regarding file handling functions.
-*     The RTrim() function is used to remove trailing spaces from the input string.
-*/
+*     Ensures lines appear on new visual lines when viewed in standard web browsers.
+*------------------------------------------------------------------------------*/
 PROCEDURE HTML_LINETEXT( HTMARCH, LINEA )
 #if defined( __XHARBOUR__ ) .OR. ( __HARBOUR__ - 0 < 0x030200 )
    IF HTMARCH > 0 .AND. IsErrorLogActive()
@@ -884,18 +873,17 @@ RETURN
 PROCEDURE HTML_LINE( HTMARCH )
 *------------------------------------------------------------------------------*
 *  Description:
-*     Writes a horizontal rule (<HR>) tag to an HTML file.
+*     Appends an HTML horizontal rule separator tag (<HR>) to the log stream.
 *
 *  Parameters:
-*     HTMARCH - The file handle (numeric in xHarbour/older Harbour, NIL in newer Harbour) of the opened HTML file.
+*     HTMARCH (Numeric/Pointer) - Active log file handle.
+*
+*  Return Value:
+*     None.
 *
 *  Purpose:
-*     This procedure writes an HTML horizontal rule tag (<HR>) to the specified HTML file.
-*     This tag creates a horizontal line in the HTML output, used to visually separate sections of the error log.
-*
-*  Notes:
-*     The function uses preprocessor directives (#if defined...) to handle differences between xHarbour/older Harbour and newer Harbour versions regarding file handling functions.
-*/
+*     Renders a horizontal visual divider between separate runtime exception blocks.
+*------------------------------------------------------------------------------*/
 PROCEDURE HTML_LINE( HTMARCH )
 #if defined( __XHARBOUR__ ) .OR. ( __HARBOUR__ - 0 < 0x030200 )
    IF HTMARCH > 0 .AND. IsErrorLogActive()
@@ -912,18 +900,17 @@ RETURN
 PROCEDURE HTML_END( HTMARCH )
 *------------------------------------------------------------------------------*
 *  Description:
-*     Closes an HTML file, writing the closing HTML tags (</BODY></HTML>).
+*     Appends closing HTML structure markup tags and closes the log file.
 *
 *  Parameters:
-*     HTMARCH - The file handle (numeric in xHarbour/older Harbour, NIL in newer Harbour) of the opened HTML file.
+*     HTMARCH (Numeric/Pointer) - File handle to finalize and close.
+*
+*  Return Value:
+*     None.
 *
 *  Purpose:
-*     This procedure writes the closing HTML tags (</BODY></HTML>) to the specified HTML file and then closes the file.
-*     This completes the HTML structure and ensures that the error log file is properly saved.
-*
-*  Notes:
-*     The function uses preprocessor directives (#if defined...) to handle differences between xHarbour/older Harbour and newer Harbour versions regarding file handling functions.
-*/
+*     Ensures valid HTML document structure by closing body/html tags before closing stream.
+*------------------------------------------------------------------------------*/
 PROCEDURE HTML_END( HTMARCH )
 #if defined( __XHARBOUR__ ) .OR. ( __HARBOUR__ - 0 < 0x030200 )
    IF HTMARCH > 0 .AND. IsErrorLogActive()
@@ -942,21 +929,17 @@ RETURN
 STATIC FUNCTION __HTML_INSERT_OFFSET()
 *------------------------------------------------------------------------------*
 *  Description:
-*     Calculates the offset from the end of the file to insert new HTML content before the closing tags.
+*     Calculates rewind byte count for file seek operations when appending logs.
 *
 *  Parameters:
-*     None
+*     None.
 *
 *  Return Value:
-*     A negative number representing the offset from the end of the file where new HTML content should be inserted.
+*     (Numeric) - Negative integer corresponding to length of string "</BODY></HTML>".
 *
 *  Purpose:
-*     This function calculates the offset needed to insert new error log entries before the closing </BODY></HTML> tags
-*     in the HTML error log file. This allows the error log to be appended to without overwriting the closing tags.
-*
-*  Notes:
-*     The function returns a negative value because it represents an offset from the end of the file.
-*/
+*     Determines exact byte distance to move backwards from EOF before writing new entries.
+*------------------------------------------------------------------------------*/
 STATIC FUNCTION __HTML_INSERT_OFFSET()
 RETURN ( -1 ) * Len( "</BODY></HTML>" )
 
@@ -964,23 +947,18 @@ RETURN ( -1 ) * Len( "</BODY></HTML>" )
 STATIC FUNCTION __HTML_BODY_TEMPLATE()
 *------------------------------------------------------------------------------*
 *  Description:
-*     Returns a base64-decoded string containing the HTML body template for the error log file.
+*     Decodes and returns the Base64 HTML document structure.
 *
 *  Parameters:
-*     None
+*     None.
 *
 *  Return Value:
-*     A string containing the HTML body template.
+*     (Character) - Decoded HTML template containing embedded CSS styles and JS logic.
 *
 *  Purpose:
-*     This function provides the basic HTML structure for the error log file. The HTML structure is stored as a base64-encoded string
-*     to avoid issues with character encoding and to make it easier to include in the source code.
-*     The template includes the DOCTYPE declaration, HTML, HEAD, and BODY tags, as well as some basic CSS styling and JavaScript for filtering.
-*
-*  Notes:
-*     The base64-encoded string contains placeholders (e.g., "{{TITLE}}") that are replaced with actual values at runtime.
-*     The JavaScript code included in the template provides basic filtering functionality for the error log.
-*/
+*     Stores complex HTML structure, responsive CSS formatting, and dynamic JS filter controls 
+*     in encoded form to prevent string escaping issues in source code.
+*------------------------------------------------------------------------------*/
 STATIC FUNCTION __HTML_BODY_TEMPLATE()
 RETURN hb_base64Decode( "PCFET0NUWVBFIGh0bWw+PGh0bWw+PGhlYWQ+PG1ldGEgY2hhcnNldD0id2luZG93cy0xMjUxIj48dGl0bGU+e3tUSVRMRX19PC90aXRsZT48c3R5bGU+Ym9keXtmb250LWZhbWlseTpzYW5zLXNlcmlmO2JhY2tncm91bmQtY29sb3I6I2ZmZjtmb250LXNpemU6MTAwJTtjb2xvcjojMDAwO3BhZGRpbmc6MTVweH0uc3VtbWFyeSxkZXRhaWxzIHN1bW1hcnl7Y29sb3I6IzA2OTtiYWNrZ3JvdW5kOiNmZmM7Ym9yZGVyOjFweCBzb2xpZCAjOWFmO3BhZGRpbmc6NXB4O21hcmdpbjoxMHB4IDVweDtjdXJzb3I6cG9pbnRlcn0ubGlua3tkaXNwbGF5OmJsb2NrO2JhY2tncm91bmQ6I2NmYzt0ZXh0LWRlY29yYXRpb246bm9uZX1oMXtmb250LWZhbWlseTpzYW5zLXNlcmlmO2ZvbnQtc2l6ZToxNTAlO2NvbG9yOiMwMGM7Zm9udC13ZWlnaHQ6NzAwO2JhY2tncm91bmQtY29sb3I6I2YwZjBmMH0udXBkYXRlZHtmb250LWZhbWlseTpzYW5zLXNlcmlmO2NvbG9yOiNjMDA7Zm9udC1zaXplOjExMCV9Lm5vcm1hbHRleHR7Zm9udC1mYW1pbHk6c2Fucy1zZXJpZjtmb250LXNpemU6MTAwJTtjb2xvcjojMDAwO2ZvbnQtd2VpZ2h0OjQwMDt0ZXh0LXRyYW5zZm9ybTpub25lO3RleHQtZGVjb3JhdGlvbjpub25lfS5sYXJnZS1zZWxlY3R7Zm9udC1zaXplOjEyNSU7cGFkZGluZzo4cHg7bWFyZ2luOjVweDtiYWNrZ3JvdW5kOiNjZGZ9PC9zdHlsZT48c2NyaXB0PmNvbnN0IGZpbHRlckJ5PShyLGUsbCxuPW51bGwpPT57bGV0IHQ9ci5tYXAobCk7dD10LnJlZHVjZSgoZSx0KT0+KHQgaW4gZXx8KGVbdF09MCksZVt0XSsrLGUpLHt9KSx0PU9iamVjdC5lbnRyaWVzKHQpLnJlZHVjZSgoZSxbdCxyXSk9PihlW3RdPVt0LHIsYFske3J9XSAke3R9YF0sZSkse30pO2NvbnN0IGM9ZG9jdW1lbnQucXVlcnlTZWxlY3RvcihlKTtPYmplY3QudmFsdWVzKHQpLnNvcnQoKGUsdCk9PnRbMV0tZVsxXSkuZm9yRWFjaCgoW2UsLHRdKT0+e2NvbnN0IHI9ZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgib3B0aW9uIik7ci52YWx1ZT1lLHIuaW5uZXJUZXh0PXQsYy5hcHBlbmRDaGlsZChyKX0pO2MuYWRkRXZlbnRMaXN0ZW5lcigiY2hhbmdlIixlPT57biYmbihjKTtjb25zdCB0PWUudGFyZ2V0LnZhbHVlO3IuZm9yRWFjaChlPT4oKGUsdCk9Pnt2YXIgcjsibnVsbCIhPT10PyhyPWwoZSksZS5zdHlsZS5kaXNwbGF5PXI9PT10P251bGw6Im5vbmUiLGNvbnNvbGUubG9nKGUsZS5zdHlsZS5kaXNwbGF5KSk6ZS5zdHlsZS5kaXNwbGF5PW51bGx9KShlLHQpKX0pfTtkb2N1bWVudC5hZGRFdmVudExpc3RlbmVyKCJET01Db250ZW50TG9hZGVkIixmdW5jdGlvbihlKXt2YXIgdD1bLi4uZG9jdW1lbnQucXVlcnlTZWxlY3RvckFsbCgiLnJlY29yZCIpXSxyPXQ9PmRvY3VtZW50LnF1ZXJ5U2VsZWN0b3IoIiNleHRyYS1wYW5lbCIpLnF1ZXJ5U2VsZWN0b3JBbGwoInNlbGVjdCIpLmZvckVhY2goZT0+dCE9PWUmJihlLnNlbGVjdGVkSW5kZXg9MCkpO2ZpbHRlckJ5KHQsIiNmaWx0ZXJCeURhdGUiLGU9PmUucXVlcnlTZWxlY3RvcigiLmRhdGUiKS5pbm5lclRleHQsciksZmlsdGVyQnkodCwiI2ZpbHRlckJ5U3RhY2t0cmFjZSIsZT0+ZS5xdWVyeVNlbGVjdG9yKCIuc3RhY2t0cmFjZSIpPy5jaGlsZE5vZGVzWzBdPy5kYXRhLnRyaW0oKSxyKSxmaWx0ZXJCeSh0LCIjZmlsdGVyQnlFcnJvciIsZT0+ZS5xdWVyeVNlbGVjdG9yKCIuZXJyb3IiKS5pbm5lclRleHQucmVwbGFjZSgvKFxyXG58XG58XHIpL2dtLCIiKS5yZXBsYWNlKC9cc3syLH0vZywiICIpLnRyaW0oKSxyKSxkb2N1bWVudC5xdWVyeVNlbGVjdG9yKCIjZXh0cmEtcGFuZWwiKS5zdHlsZS5kaXNwbGF5PW51bGwsY29uc29sZS5sb2coIkRPTUNvbnRlbnRMb2FkZWQiKX0pPC9zY3JpcHQ+PC9oZWFkPjxib2R5PjxoMSBzdHlsZT0idGV4dC1hbGlnbjpjZW50ZXIiPnt7VElUTEV9fTwvaDE+PGRpdiBpZD0iZXh0cmEtcGFuZWwiIHN0eWxlPSJkaXNwbGF5Om5vbmUiPjxzZWxlY3QgYXV0b2NvbXBsZXRlPSJvZmYiIGlkPSJmaWx0ZXJCeURhdGUiIGNsYXNzPSJsYXJnZS1zZWxlY3QiPjxvcHRpb24gc2VsZWN0ZWQ9InNlbGVjdGVkIiBkaXNhYmxlZD0iZGlzYWJsZWQiIHZhbHVlPSJudWxsIj5GaWx0ZXIgYnkgRGF0ZTwvb3B0aW9uPjxvcHRpb24gdmFsdWU9Im51bGwiPkFsbCBkYXRlczwvb3B0aW9uPjwvc2VsZWN0PiA8c2VsZWN0IGF1dG9jb21wbGV0ZT0ib2ZmIiBpZD0iZmlsdGVyQnlTdGFja3RyYWNlIiBjbGFzcz0ibGFyZ2Utc2VsZWN0Ij48b3B0aW9uIHNlbGVjdGVkPSJzZWxlY3RlZCIgZGlzYWJsZWQ9ImRpc2FibGVkIiB2YWx1ZT0ibnVsbCI+RmlsdGVyIGJ5IFN0YWNrVHJhY2U8L29wdGlvbj48b3B0aW9uIHZhbHVlPSJudWxsIj5BbGwgc3RhY2t0cmFjZXM8L29wdGlvbj48L3NlbGVjdD4gPHNlbGVjdCBhdXRvY29tcGxldGU9Im9mZiIgaWQ9ImZpbHRlckJ5RXJyb3IiIGNsYXNzPSJsYXJnZS1zZWxlY3QiPjxvcHRpb24gc2VsZWN0ZWQ9InNlbGVjdGVkIiBkaXNhYmxlZD0iZGlzYWJsZWQiIHZhbHVlPSJudWxsIj5GaWx0ZXIgYnkgRXJyb3I8L29wdGlvbj48b3B0aW9uIHZhbHVlPSJudWxsIj5BbGwgZXJyb3JzPC9vcHRpb24+PC9zZWxlY3Q+PC9kaXY+PC9ib2R5PjwvaHRtbD4=" )
 
@@ -988,25 +966,20 @@ RETURN hb_base64Decode( "PCFET0NUWVBFIGh0bWw+PGh0bWw+PGhlYWQ+PG1ldGEgY2hhcnNldD0
 FUNCTION GetCPUInfo()
 *------------------------------------------------------------------------------*
 *  Description:
-*     Retrieves CPU information from the Windows Registry.
+*     Retrieves host CPU branding string and estimated clock speed from Windows Registry.
 *
 *  Parameters:
-*     None
+*     None.
 *
 *  Return Value:
-*     An array containing two elements:
-*       [1] - The processor name string (e.g., "Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz").
-*       [2] - The processor speed in MHz (as a number).
+*     aRetVal (Array) - 2-element array:
+*                       [1] (Character) CPU Processor Name string.
+*                       [2] (Numeric)   CPU Clock Frequency in MHz.
 *
 *  Purpose:
-*     This function retrieves the CPU name and speed from the Windows Registry.
-*     This information can be used for system information display or for diagnostic purposes.
-*
-*  Notes:
-*     The function uses the GetRegistryValue() function to read the values from the registry.
-*     The registry key and value names are hardcoded in the function.
-*     If the registry values are not found, the corresponding array elements will be empty.
-*/
+*     Obtains processor specs directly from HKEY_LOCAL_MACHINE registry keys
+*     to include hardware details in error logs.
+*------------------------------------------------------------------------------*/
 FUNCTION GetCPUInfo()
    LOCAL aRetVal := Array( 2 )
    LOCAL cKey := "HARDWARE\DESCRIPTION\System\CentralProcessor\0"
@@ -1020,25 +993,19 @@ RETURN aRetVal
 FUNCTION GetOSErrorDescription( nError )
 *------------------------------------------------------------------------------*
 *  Description:
-*     Returns a textual description for a given operating system error code.
+*     Translates numeric Win32 / DOS OS error codes into human-readable strings.
 *
 *  Parameters:
-*     nError - The operating system error code (a numeric value).
+*     nError (Numeric) - Operating system error code (e.g., from oError:osCode).
 *
 *  Return Value:
-*     A string containing the error code and its description (e.g., "2=File not found").
-*     If the error code is not found in the internal list, returns "nError=Unknown error".
+*     (Character) - Formatted string "code=Description" (e.g., "5=Access denied").
+*                   Returns "nError=Unknown error" if code is unmapped.
 *
 *  Purpose:
-*     This function provides a user-friendly description for operating system error codes.
-*     It maintains an internal array of error codes and their corresponding descriptions.
-*     This allows the application to display meaningful error messages to the user instead of just numeric error codes.
-*
-*  Notes:
-*     The function uses a static array to store the error codes and descriptions.
-*     The array is initialized only once when the function is first called.
-*     The AScan() function is used to search for the error code in the array.
-*/
+*     Converts numerical operating system exception codes into meaningful text
+*     descriptions using an internal static lookup table.
+*------------------------------------------------------------------------------*/
 FUNCTION GetOSErrorDescription( nError )
    LOCAL nPos
    STATIC aError := {}
@@ -1121,10 +1088,27 @@ FUNCTION GetOSErrorDescription( nError )
 
 RETURN hb_ntos( nError ) + "=Unknown error"
 
-// (JK) HMG 1.0 Build 6
-*-----------------------------------------------------------------------------*
+/*-----------------------------------------------------------------------------*
 PROCEDURE _SetErrorLogFile( cFile )
-*-----------------------------------------------------------------------------*
+*------------------------------------------------------------------------------*
+*  Description:
+*     Configures target file path for the HMG error log file.
+*
+*  Parameters:
+*     cFile (Character) - Desired output file path for error log HTML document.
+*                         If omitted or empty, defaults to "ErrorLog.htm" in application directory.
+*
+*  Return Value:
+*     None.
+*
+*  Purpose:
+*     Allows application developers to override default log file path at runtime.
+*
+*  Side Effects:
+*     Updates global variable `_HMG_ErrorLogFile`.
+*------------------------------------------------------------------------------*/
+PROCEDURE _SetErrorLogFile( cFile )
+
    _HMG_ErrorLogFile := IFEMPTY( cFile, GetStartUpFolder() + hb_ps() + "ErrorLog.htm", cFile )
 
 RETURN

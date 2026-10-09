@@ -47,47 +47,44 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 #include "minigui.ch"
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawtextout( window, row, col, string, fontcolor, backcolor, fontname, fontsize, bold, italic, underline, strikeout, transparent, angle, once )
-* 
-*
-*  Purpose:
-*     Draws text on a specified window (form or DC).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window      - The window handle or the name of the form where the text will be drawn.
-*     row         - The row coordinate (Y-coordinate) of the top-left corner of the text.
-*     col         - The column coordinate (X-coordinate) of the top-left corner of the text.
-*     string      - The text string to be drawn.
-*     fontcolor   - An array containing the RGB values for the font color (e.g., {255, 0, 0} for red).
-*     backcolor   - An array containing the RGB values for the background color.
-*     fontname    - The name of the font to use (e.g., "Arial").
-*     fontsize    - The size of the font in points.
-*     bold        - A logical value indicating whether the font should be bold (.T. for bold, .F. for normal).
-*     italic      - A logical value indicating whether the font should be italic (.T. for italic, .F. for normal).
-*     underline   - A logical value indicating whether the font should be underlined (.T. for underlined, .F. for normal).
-*     strikeout   - A logical value indicating whether the font should be struck out (.T. for struck out, .F. for normal).
-*     transparent - A logical value indicating whether the background should be transparent (.T. for transparent, .F. for opaque).
-*     angle       - The angle at which the text should be drawn (in degrees).
-*     once        - A logical value indicating whether the text should be drawn only once and not stored for redraws (.T. for once, .F. for persistent).
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for font name, font size, background color, font color, and angle if they are not provided.
-*     - The textdraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - If the 'once' parameter is .F., the drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - The torow and tocol variables are calculated to define the bottom-right corner of the text area, taking into account transparency and angle.
-*     - Error handling: Checks if the window handle is valid or if it's a DC object.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawtextout( window, row, col, string, fontcolor, backcolor, fontname, fontsize, bold, italic, underline, strikeout, transparent, angle, once )
+ *
+ * Purpose:
+ *    Renders text onto a specified window or device context with optional styling,
+ *    colors, and orientation angle. Unless 'once' is .T., the rendering task is
+ *    stored in the form's graphic task array to enable persistent redrawing on repaints.
+ *
+ * Parameters:
+ *    window      - Character or Numeric. Name of the form or window/DC handle (HWND/HDC).
+ *    row         - Numeric. Top Y-coordinate in pixels for text placement.
+ *    col         - Numeric. Left X-coordinate in pixels for text placement.
+ *    string      - Character. Text content to render.
+ *    fontcolor   - Array or NIL. RGB color array {R, G, B} for text color (default: black {0, 0, 0}).
+ *    backcolor   - Array or NIL. RGB color array {R, G, B} for text background (default: white {255, 255, 255}).
+ *    fontname    - Character or NIL. Font family name (default: system/form default).
+ *    fontsize    - Numeric or NIL. Font size in points (default: system/form default).
+ *    bold        - Logical or NIL. Enables bold font weight if .T.
+ *    italic      - Logical or NIL. Enables italic font style if .T.
+ *    underline   - Logical or NIL. Enables font underline if .T.
+ *    strikeout   - Logical or NIL. Enables font strikeout if .T.
+ *    transparent - Logical or NIL. Enables transparent text background if .T.
+ *    angle       - Numeric or NIL. Rotation angle in degrees (default: 0).
+ *    once        - Logical or NIL. If .T., draws once without adding to persistent repaint queue (default: .F.).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately renders text onto the specified form or device context via textdraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i] when 'once' is .F.
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawtextout( window, row, col, string, fontcolor, backcolor, fontname, fontsize, bold, italic, underline, strikeout, transparent, angle, once )
    LOCAL FormHandle, FontHandle
    LOCAL torow, tocol
    LOCAL i
 
+   // Resolve window handle whether passed as a form name string or direct handle
    IF hb_IsString( window )
       IF ( i := GetFormIndex( window ) ) > 0
          FormHandle := _HMG_aFormHandles [i]
@@ -96,11 +93,14 @@ FUNCTION drawtextout( window, row, col, string, fontcolor, backcolor, fontname, 
       FormHandle := window
    ENDIF
 
+   // Verify window handle or device context object before executing draw calls
    IF IsWindowHandle( FormHandle ) .OR. ( GetObjectType( FormHandle ) == OBJ_DC )
+      // Extract registered font attributes by reference if a handle exists
       IF ( FontHandle := GetFontHandle( FontName ) ) != 0
          GetFontParamByRef( FontHandle, @FontName, @FontSize, @bold, @italic, @underline, @strikeout, @angle )
       ENDIF
 
+      // Apply default font properties and styling parameters
       __defaultNIL( @fontname, _HMG_DefaultFontName )
       __defaultNIL( @fontsize, _HMG_DefaultFontSize )
       hb_default( @backcolor, { 255, 255, 255 } )
@@ -108,9 +108,11 @@ FUNCTION drawtextout( window, row, col, string, fontcolor, backcolor, fontname, 
       hb_default( @angle, 0 )
       hb_default( @once, .F. )
 
+      // Calculate bounding box endpoint coordinates for text layout
       torow := row + iif( transparent .OR. !Empty( angle ), 0, fontsize + 4 )
       tocol := col + ( Len( string ) - 1 ) * fontsize
       textdraw( FormHandle, row, col, string, torow, tocol, fontcolor, backcolor, fontname, fontsize, bold, italic, underline, strikeout, transparent, angle )
+      // Queue codeblock for persistent redrawing on WM_PAINT unless single-shot requested
       IF ! once
          AAdd ( _HMG_aFormGraphTasks [i], {|| textdraw( FormHandle,row,col,string,torow,tocol,fontcolor,backcolor,fontname,fontsize,bold,italic,underline,strikeout,transparent,angle ) } )
       ENDIF
@@ -118,376 +120,368 @@ FUNCTION drawtextout( window, row, col, string, fontcolor, backcolor, fontname, 
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawline( window, row, col, row1, col1, penrgb, penwidth )
-* 
-*
-*  Purpose:
-*     Draws a line on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window   - The window handle or the name of the form where the line will be drawn.
-*     row      - The row coordinate (Y-coordinate) of the starting point of the line.
-*     col      - The column coordinate (X-coordinate) of the starting point of the line.
-*     row1     - The row coordinate (Y-coordinate) of the ending point of the line.
-*     col1     - The column coordinate (X-coordinate) of the ending point of the line.
-*     penrgb   - An array containing the RGB values for the pen color (e.g., {255, 0, 0} for red).
-*     penwidth - The width of the pen in pixels.
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for pen color and pen width if they are not provided.
-*     - The linedraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - Error handling: Checks if the form index is valid.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawline( window, row, col, row1, col1, penrgb, penwidth )
+ *
+ * Purpose:
+ *    Draws a straight line segment on a form and registers the drawing operation
+ *    in the form's task list for automatic repainting during window refresh events.
+ *
+ * Parameters:
+ *    window   - Character or Numeric. Name of the form or form handle.
+ *    row      - Numeric. Starting Y-coordinate in pixels.
+ *    col      - Numeric. Starting X-coordinate in pixels.
+ *    row1     - Numeric. Ending Y-coordinate in pixels.
+ *    col1     - Numeric. Ending X-coordinate in pixels.
+ *    penrgb   - Array or NIL. RGB color array {R, G, B} for line stroke (default: black {0, 0, 0}).
+ *    penwidth - Numeric or NIL. Line thickness in pixels (default: 1).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately renders a line on the form surface via linedraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawline( window, row, col, row1, col1, penrgb, penwidth )
    LOCAL FormHandle
    LOCAL i
 
+   // Validate registered form index and retrieve underlying window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply default pen color and stroke width
       hb_default( @penrgb, { 0, 0, 0 } )
       hb_default( @penwidth, 1 )
 
+      // Perform immediate line rendering and store persistent redraw block
       linedraw( FormHandle, row, col, row1, col1, penrgb, penwidth )
       AAdd ( _HMG_aFormGraphTasks [i] , {|| linedraw( FormHandle,row,col,row1,col1,penrgb,penwidth ) } )
    ENDIF
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawrect( window, row, col, row1, col1, penrgb, penwidth, fillrgb )
-* 
-*
-*  Purpose:
-*     Draws a rectangle on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window   - The window handle or the name of the form where the rectangle will be drawn.
-*     row      - The row coordinate (Y-coordinate) of the top-left corner of the rectangle.
-*     col      - The column coordinate (X-coordinate) of the top-left corner of the rectangle.
-*     row1     - The row coordinate (Y-coordinate) of the bottom-right corner of the rectangle.
-*     col1     - The column coordinate (X-coordinate) of the bottom-right corner of the rectangle.
-*     penrgb   - An array containing the RGB values for the pen color (e.g., {255, 0, 0} for red).
-*     penwidth - The width of the pen in pixels.
-*     fillrgb  - An array containing the RGB values for the fill color (e.g., {255, 255, 255} for white). If not an array, it defaults to white.
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for pen color, pen width, and fill color if they are not provided.
-*     - The rectdraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - The 'fill' variable determines whether the rectangle should be filled based on whether fillrgb is an array.
-*     - Error handling: Checks if the form index is valid.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawrect( window, row, col, row1, col1, penrgb, penwidth, fillrgb )
+ *
+ * Purpose:
+ *    Draws a rectangle on a window with customizable border pen and fill color,
+ *    and registers the operation in the window's graphics task list for repainting.
+ *
+ * Parameters:
+ *    window   - Character or Numeric. Name of the form or form handle.
+ *    row      - Numeric. Top-left Y-coordinate in pixels.
+ *    col      - Numeric. Top-left X-coordinate in pixels.
+ *    row1     - Numeric. Bottom-right Y-coordinate in pixels.
+ *    col1     - Numeric. Bottom-right X-coordinate in pixels.
+ *    penrgb   - Array or NIL. RGB color array {R, G, B} for border pen (default: black {0, 0, 0}).
+ *    penwidth - Numeric or NIL. Border line thickness in pixels (default: 1).
+ *    fillrgb  - Array or NIL. RGB color array {R, G, B} for interior fill (default: white {255, 255, 255}).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately draws rectangle graphics on target form via rectdraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawrect( window, row, col, row1, col1, penrgb, penwidth, fillrgb )
    LOCAL FormHandle
    LOCAL i
    LOCAL fill
 
+   // Validate registered form index and retrieve target window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply default pen attributes
       hb_default( @penrgb, { 0, 0, 0 } )
       hb_default( @penwidth, 1 )
+      // Evaluate fill mode flag based on whether fillrgb is provided as an array
       IF !( fill := ISARRAY( fillrgb ) )
          fillrgb := { 255, 255, 255 }
       ENDIF
 
+      // Render rectangle immediately and record redraw task block
       rectdraw( FormHandle, row, col, row1, col1, penrgb, penwidth, fillrgb, fill )
       AAdd ( _HMG_aFormGraphTasks [i] , {|| rectdraw( FormHandle,row,col,row1,col1,penrgb,penwidth,fillrgb,fill ) } )
    ENDIF
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawroundrect( window, row, col, row1, col1, width, height, penrgb, penwidth, fillrgb )
-* 
-*
-*  Purpose:
-*     Draws a rounded rectangle on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window   - The window handle or the name of the form where the rounded rectangle will be drawn.
-*     row      - The row coordinate (Y-coordinate) of the top-left corner of the rectangle.
-*     col      - The column coordinate (X-coordinate) of the top-left corner of the rectangle.
-*     row1     - The row coordinate (Y-coordinate) of the bottom-right corner of the rectangle.
-*     col1     - The column coordinate (X-coordinate) of the bottom-right corner of the rectangle.
-*     width    - The width of the rounded corner.
-*     height   - The height of the rounded corner.
-*     penrgb   - An array containing the RGB values for the pen color (e.g., {255, 0, 0} for red).
-*     penwidth - The width of the pen in pixels.
-*     fillrgb  - An array containing the RGB values for the fill color (e.g., {255, 255, 255} for white). If not an array, it defaults to white.
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for pen color, pen width, and fill color if they are not provided.
-*     - The roundrectdraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - The 'fill' variable determines whether the rectangle should be filled based on whether fillrgb is an array.
-*     - Error handling: Checks if the form index is valid.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawroundrect( window, row, col, row1, col1, width, height, penrgb, penwidth, fillrgb )
+ *
+ * Purpose:
+ *    Draws a rounded rectangle on a window defined by bounding coordinates and
+ *    corner ellipse dimensions, and registers the task for window repainting.
+ *
+ * Parameters:
+ *    window   - Character or Numeric. Name of the form or form handle.
+ *    row      - Numeric. Top-left Y-coordinate in pixels.
+ *    col      - Numeric. Top-left X-coordinate in pixels.
+ *    row1     - Numeric. Bottom-right Y-coordinate in pixels.
+ *    col1     - Numeric. Bottom-right X-coordinate in pixels.
+ *    width    - Numeric. Horizontal diameter of ellipse for rounded corners.
+ *    height   - Numeric. Vertical diameter of ellipse for rounded corners.
+ *    penrgb   - Array or NIL. RGB color array {R, G, B} for border pen (default: black {0, 0, 0}).
+ *    penwidth - Numeric or NIL. Border line thickness in pixels (default: 1).
+ *    fillrgb  - Array or NIL. RGB color array {R, G, B} for interior fill (default: white {255, 255, 255}).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately renders rounded rectangle on screen via roundrectdraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawroundrect( window, row, col, row1, col1, width, height, penrgb, penwidth, fillrgb )
    LOCAL FormHandle
    LOCAL i
    LOCAL fill
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply default pen attributes
       hb_default( @penrgb, { 0, 0, 0 } )
       hb_default( @penwidth, 1 )
+      // Set fill flag and fallback color if fill parameter is not an array
       IF !( fill := ISARRAY( fillrgb ) )
          fillrgb := { 255, 255, 255 }
       ENDIF
 
+      // Render rounded rectangle and queue persistent drawing task block
       roundrectdraw( FormHandle, row, col, row1, col1, width, height, penrgb, penwidth, fillrgb, fill )
       AAdd ( _HMG_aFormGraphTasks [i] , {|| roundrectdraw( FormHandle,row,col,row1,col1,width,height,penrgb,penwidth,fillrgb,fill ) } )
    ENDIF
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawellipse( window, row, col, row1, col1, penrgb, penwidth, fillrgb )
-* 
-*
-*  Purpose:
-*     Draws an ellipse on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window   - The window handle or the name of the form where the ellipse will be drawn.
-*     row      - The row coordinate (Y-coordinate) of the top-left corner of the bounding rectangle.
-*     col      - The column coordinate (X-coordinate) of the top-left corner of the bounding rectangle.
-*     row1     - The row coordinate (Y-coordinate) of the bottom-right corner of the bounding rectangle.
-*     col1     - The column coordinate (X-coordinate) of the bottom-right corner of the bounding rectangle.
-*     penrgb   - An array containing the RGB values for the pen color (e.g., {255, 0, 0} for red).
-*     penwidth - The width of the pen in pixels.
-*     fillrgb  - An array containing the RGB values for the fill color (e.g., {255, 255, 255} for white). If not an array, it defaults to white.
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for pen color, pen width, and fill color if they are not provided.
-*     - The ellipsedraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - The 'fill' variable determines whether the ellipse should be filled based on whether fillrgb is an array.
-*     - Error handling: Checks if the form index is valid.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawellipse( window, row, col, row1, col1, penrgb, penwidth, fillrgb )
+ *
+ * Purpose:
+ *    Draws an ellipse or circle bounded by specified rectangular coordinates on a window,
+ *    and registers the task for window repainting.
+ *
+ * Parameters:
+ *    window   - Character or Numeric. Name of the form or form handle.
+ *    row      - Numeric. Top-left Y-coordinate of bounding box in pixels.
+ *    col      - Numeric. Top-left X-coordinate of bounding box in pixels.
+ *    row1     - Numeric. Bottom-right Y-coordinate of bounding box in pixels.
+ *    col1     - Numeric. Bottom-right X-coordinate of bounding box in pixels.
+ *    penrgb   - Array or NIL. RGB color array {R, G, B} for outline (default: black {0, 0, 0}).
+ *    penwidth - Numeric or NIL. Outline stroke thickness in pixels (default: 1).
+ *    fillrgb  - Array or NIL. RGB color array {R, G, B} for interior fill (default: white {255, 255, 255}).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately renders ellipse graphics on form via ellipsedraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawellipse( window, row, col, row1, col1, penrgb, penwidth, fillrgb )
    LOCAL FormHandle
    LOCAL i
    LOCAL fill
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply default pen attributes
       hb_default( @penrgb, { 0, 0, 0 } )
       hb_default( @penwidth, 1 )
+      // Determine if interior fill should be enabled
       IF !( fill := ISARRAY( fillrgb ) )
          fillrgb := { 255, 255, 255 }
       ENDIF
 
+      // Render ellipse and queue repaint task block
       ellipsedraw( FormHandle, row, col, row1, col1, penrgb, penwidth, fillrgb, fill )
       AAdd ( _HMG_aFormGraphTasks [i] , {|| ellipsedraw( FormHandle,row,col,row1,col1,penrgb,penwidth,fillrgb,fill ) } )
    ENDIF
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawarc( window, row, col, row1, col1, rowr, colr, rowr1, colr1, penrgb, penwidth )
-* 
-*
-*  Purpose:
-*     Draws an arc on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window   - The window handle or the name of the form where the arc will be drawn.
-*     row      - The row coordinate (Y-coordinate) of the top-left corner of the bounding rectangle.
-*     col      - The column coordinate (X-coordinate) of the top-left corner of the bounding rectangle.
-*     row1     - The row coordinate (Y-coordinate) of the bottom-right corner of the bounding rectangle.
-*     col1     - The column coordinate (X-coordinate) of the bottom-right corner of the bounding rectangle.
-*     rowr     - The row coordinate (Y-coordinate) of the starting point of the arc.
-*     colr     - The column coordinate (X-coordinate) of the starting point of the arc.
-*     rowr1    - The row coordinate (Y-coordinate) of the ending point of the arc.
-*     colr1    - The column coordinate (X-coordinate) of the ending point of the arc.
-*     penrgb   - An array containing the RGB values for the pen color (e.g., {255, 0, 0} for red).
-*     penwidth - The width of the pen in pixels.
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for pen color and pen width if they are not provided.
-*     - The arcdraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - Error handling: Checks if the form index is valid.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawarc( window, row, col, row1, col1, rowr, colr, rowr1, colr1, penrgb, penwidth )
+ *
+ * Purpose:
+ *    Draws an elliptical arc segment on a window defined by a bounding rectangle
+ *    and radial intersection points, and adds the task to the repainting queue.
+ *
+ * Parameters:
+ *    window   - Character or Numeric. Name of the form or form handle.
+ *    row      - Numeric. Top Y-coordinate of bounding box.
+ *    col      - Numeric. Left X-coordinate of bounding box.
+ *    row1     - Numeric. Bottom Y-coordinate of bounding box.
+ *    col1     - Numeric. Right X-coordinate of bounding box.
+ *    rowr     - Numeric. Y-coordinate defining arc start radial line.
+ *    colr     - Numeric. X-coordinate defining arc start radial line.
+ *    rowr1    - Numeric. Y-coordinate defining arc end radial line.
+ *    colr1    - Numeric. X-coordinate defining arc end radial line.
+ *    penrgb   - Array or NIL. RGB color array {R, G, B} for stroke (default: black {0, 0, 0}).
+ *    penwidth - Numeric or NIL. Stroke width in pixels (default: 1).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately renders arc graphics via arcdraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawarc( window, row, col, row1, col1, rowr, colr, rowr1, colr1, penrgb, penwidth )
    LOCAL FormHandle
    LOCAL i
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply default pen attributes
       hb_default( @penrgb, { 0, 0, 0 } )
       hb_default( @penwidth, 1 )
 
+      // Render arc segment and store persistent graphics task
       arcdraw( FormHandle, row, col, row1, col1, rowr, colr, rowr1, colr1, penrgb, penwidth )
       AAdd ( _HMG_aFormGraphTasks [i] , {|| arcdraw( FormHandle,row,col,row1,col1,rowr,colr,rowr1,colr1,penrgb,penwidth ) } )
    ENDIF
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawpie( window, row, col, row1, col1, rowr, colr, rowr1, colr1, penrgb, penwidth, fillrgb )
-* 
-*
-*  Purpose:
-*     Draws a pie slice on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window   - The window handle or the name of the form where the pie slice will be drawn.
-*     row      - The row coordinate (Y-coordinate) of the top-left corner of the bounding rectangle.
-*     col      - The column coordinate (X-coordinate) of the top-left corner of the bounding rectangle.
-*     row1     - The row coordinate (Y-coordinate) of the bottom-right corner of the bounding rectangle.
-*     col1     - The column coordinate (X-coordinate) of the bottom-right corner of the bounding rectangle.
-*     rowr     - The row coordinate (Y-coordinate) of the starting point of the pie slice.
-*     colr     - The column coordinate (X-coordinate) of the starting point of the pie slice.
-*     rowr1    - The row coordinate (Y-coordinate) of the ending point of the pie slice.
-*     colr1    - The column coordinate (X-coordinate) of the ending point of the pie slice.
-*     penrgb   - An array containing the RGB values for the pen color (e.g., {255, 0, 0} for red).
-*     penwidth - The width of the pen in pixels.
-*     fillrgb  - An array containing the RGB values for the fill color (e.g., {255, 255, 255} for white). If not an array, it defaults to white.
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for pen color, pen width, and fill color if they are not provided.
-*     - The piedraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - The 'fill' variable determines whether the pie slice should be filled based on whether fillrgb is an array.
-*     - Error handling: Checks if the form index is valid.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawpie( window, row, col, row1, col1, rowr, colr, rowr1, colr1, penrgb, penwidth, fillrgb )
+ *
+ * Purpose:
+ *    Draws a pie wedge sector on a window defined by a bounding rectangle and
+ *    radial line vectors, and registers the operation in the window's repaint queue.
+ *
+ * Parameters:
+ *    window   - Character or Numeric. Name of the form or form handle.
+ *    row      - Numeric. Top Y-coordinate of bounding box.
+ *    col      - Numeric. Left X-coordinate of bounding box.
+ *    row1     - Numeric. Bottom Y-coordinate of bounding box.
+ *    col1     - Numeric. Right X-coordinate of bounding box.
+ *    rowr     - Numeric. Y-coordinate defining wedge start radial vector.
+ *    colr     - Numeric. X-coordinate defining wedge start radial vector.
+ *    rowr1    - Numeric. Y-coordinate defining wedge end radial vector.
+ *    colr1    - Numeric. X-coordinate defining wedge end radial vector.
+ *    penrgb   - Array or NIL. RGB color array {R, G, B} for border pen (default: black {0, 0, 0}).
+ *    penwidth - Numeric or NIL. Border thickness in pixels (default: 1).
+ *    fillrgb  - Array or NIL. RGB color array {R, G, B} for interior fill (default: white {255, 255, 255}).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately renders pie sector via piedraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawpie( window, row, col, row1, col1, rowr, colr, rowr1, colr1, penrgb, penwidth, fillrgb )
    LOCAL FormHandle
    LOCAL i
    LOCAL fill
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply default pen attributes
       hb_default( @penrgb, { 0, 0, 0 } )
       hb_default( @penwidth, 1 )
+      // Evaluate fill mode flag based on presence of fill color array
       IF !( fill := ISARRAY( fillrgb ) )
          fillrgb := { 255, 255, 255 }
       ENDIF
 
+      // Render pie wedge and append redraw block to form task list
       piedraw( FormHandle, row, col, row1, col1, rowr, colr, rowr1, colr1, penrgb, penwidth, fillrgb, fill )
       AAdd( _HMG_aFormGraphTasks [i] , {|| piedraw( FormHandle,row,col,row1,col1,rowr,colr,rowr1,colr1,penrgb,penwidth,fillrgb,fill ) } )
    ENDIF
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawpolygon( window, apoints, penrgb, penwidth, fillrgb )
-* 
-*
-*  Purpose:
-*     Draws a polygon on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window   - The window handle or the name of the form where the polygon will be drawn.
-*     apoints  - An array of arrays, where each inner array contains the Y and X coordinates of a vertex (e.g., {{y1, x1}, {y2, x2}, ...}).
-*     penrgb   - An array containing the RGB values for the pen color (e.g., {255, 0, 0} for red).
-*     penwidth - The width of the pen in pixels.
-*     fillrgb  - An array containing the RGB values for the fill color (e.g., {255, 255, 255} for white). If not an array, it defaults to white.
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for pen color, pen width, and fill color if they are not provided.
-*     - The AEval function iterates through the apoints array to extract the Y and X coordinates into separate arrays (yarr and xarr).
-*     - The polygondraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - The 'fill' variable determines whether the polygon should be filled based on whether fillrgb is an array.
-*     - Error handling: Checks if the form index is valid.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawpolygon( window, apoints, penrgb, penwidth, fillrgb )
+ *
+ * Purpose:
+ *    Draws a closed polygon on a window defined by an array of point coordinates,
+ *    and registers the task for persistent window repainting.
+ *
+ * Parameters:
+ *    window   - Character or Numeric. Name of the form or form handle.
+ *    apoints  - Array of Arrays. Pairs of {{row1, col1}, {row2, col2}, ...} defining vertices.
+ *    penrgb   - Array or NIL. RGB color array {R, G, B} for outline (default: black {0, 0, 0}).
+ *    penwidth - Numeric or NIL. Line stroke width in pixels (default: 1).
+ *    fillrgb  - Array or NIL. RGB color array {R, G, B} for polygon fill (default: white {255, 255, 255}).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately draws polygon graphics via polygondraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawpolygon( window, apoints, penrgb, penwidth, fillrgb )
    LOCAL FormHandle
    LOCAL i
    LOCAL fill
    LOCAL xarr := {}, yarr := {}
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply default pen attributes
       hb_default( @penrgb, { 0, 0, 0 } )
       hb_default( @penwidth, 1 )
+      // Set fill flag and fallback color if fill parameter is not an array
       IF !( fill := ISARRAY( fillrgb ) )
          fillrgb := { 255, 255, 255 }
       ENDIF
 
+      // Deconstruct array of {row, col} point pairs into separate x and y coordinate arrays
       AEval( apoints, { | x | AAdd( yarr, x[1] ), AAdd( xarr, x[2] ) } )
+      // Render polygon and store persistent redraw task
       polygondraw( FormHandle, xarr, yarr, penrgb, penwidth, fillrgb, fill )
       AAdd( _HMG_aFormGraphTasks [i] , {|| polygondraw( FormHandle,xarr,yarr,penrgb,penwidth,fillrgb,fill ) } )
    ENDIF
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-* FUNCTION drawpolybezier( window, apoints, penrgb, penwidth )
-* 
-*
-*  Purpose:
-*     Draws a polybezier curve on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window   - The window handle or the name of the form where the polybezier curve will be drawn.
-*     apoints  - An array of arrays, where each inner array contains the Y and X coordinates of a control point (e.g., {{y1, x1}, {y2, x2}, ...}).
-*     penrgb   - An array containing the RGB values for the pen color (e.g., {255, 0, 0} for red).
-*     penwidth - The width of the pen in pixels.
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for pen color and pen width if they are not provided.
-*     - The AEval function iterates through the apoints array to extract the Y and X coordinates into separate arrays (yarr and xarr).
-*     - The polybezierdraw function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - Error handling: Checks if the form index is valid.
-*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION drawpolybezier( window, apoints, penrgb, penwidth )
+ *
+ * Purpose:
+ *    Draws one or more cubic Bezier curves on a window using control point coordinates
+ *    from an array, and registers the drawing operation in the window's repaint queue.
+ *
+ * Parameters:
+ *    window   - Character or Numeric. Name of the form or form handle.
+ *    apoints  - Array of Arrays. {{row1, col1}, ...} coordinate pairs for endpoints and control points.
+ *    penrgb   - Array or NIL. RGB color array {R, G, B} for curve stroke (default: black {0, 0, 0}).
+ *    penwidth - Numeric or NIL. Curve stroke width in pixels (default: 1).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Immediately renders Bezier curves via polybezierdraw().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION drawpolybezier( window, apoints, penrgb, penwidth )
    LOCAL FormHandle
    LOCAL xarr := {}, yarr := {}
    LOCAL i
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply default pen attributes
       hb_default( @penrgb, { 0, 0, 0 } )
       hb_default( @penwidth, 1 )
 
+      // Unpack {row, col} point pairs into separate coordinate arrays
       AEval( apoints, { | x | AAdd( yarr, x[1] ), AAdd( xarr, x[2] ) } )
+      // Draw Bezier spline and queue task block for form refresh
       polybezierdraw( FormHandle, xarr, yarr, penrgb, penwidth )
       AAdd( _HMG_aFormGraphTasks [i] , {|| polybezierdraw( FormHandle,xarr,yarr,penrgb,penwidth ) } )
    ENDIF
@@ -495,47 +489,44 @@ FUNCTION drawpolybezier( window, apoints, penrgb, penwidth )
 RETURN NIL
 
 #define COLOR_BTNFACE	15
-/*-----------------------------------------------------------------------------
-* FUNCTION HMG_DrawIcon( window, icon, row, col, w, h, rgb, transparent )
-* 
-*
-*  Purpose:
-*     Draws an icon on a specified window (form).  It also stores the drawing
-*     operation in an array so that it can be redrawn when the window is refreshed.
-*
-*  Parameters:
-*     window      - The window handle or the name of the form where the icon will be drawn.
-*     icon        - The icon to draw. Can be either a numeric icon handle or a string representing the icon name.
-*     row         - The row coordinate (Y-coordinate) of the top-left corner of the icon.
-*     col         - The column coordinate (X-coordinate) of the top-left corner of the icon.
-*     w           - The width of the icon. If 0, the default icon width is used.
-*     h           - The height of the icon. If 0, the default icon height is used.
-*     rgb         - An array containing the RGB values for the background color of the icon (used when transparent is .F.).
-*     transparent - A logical value indicating whether the icon background should be transparent (.T. for transparent, .F. for opaque).
-*
-*  Return Value:
-*     NIL
-*
-*  Notes:
-*     - The function retrieves the window handle based on the provided window parameter (either a handle or a form name).
-*     - It uses default values for width, height, transparency, and background color if they are not provided.
-*     - If transparent is .T., the background color is set to the form's background color.
-*     - If rgb is an array, it's converted to a single RGB value using the RGB() function.
-*     - If the icon is a number, it's treated as an icon handle. If it's a string, it's treated as an icon name and loaded using LoadIconByName().
-*     - The DrawIconEx function (assumed to be a low-level drawing function) is called to perform the actual drawing.
-*     - The drawing operation is added to an array (_HMG_aFormGraphTasks) for later redrawing.
-*     - Error handling: Checks if the form index is valid.
-*/
+
+/*--------------------------------------------------------------------------------
+ * FUNCTION HMG_DrawIcon( window, icon, row, col, w, h, rgb, transparent )
+ *
+ * Purpose:
+ *    Renders an icon (from a numeric handle or named string resource) onto a window
+ *    and registers the task in the form's task list for automatic repainting.
+ *
+ * Parameters:
+ *    window      - Character or Numeric. Name of the form or form handle.
+ *    icon        - Numeric or Character. HICON handle or named icon resource string.
+ *    row         - Numeric. Top Y-coordinate in pixels.
+ *    col         - Numeric. Left X-coordinate in pixels.
+ *    w           - Numeric or NIL. Width in pixels (0 uses natural icon width).
+ *    h           - Numeric or NIL. Height in pixels (0 uses natural icon height).
+ *    rgb         - Array, Numeric, or NIL. RGB color array {R,G,B} or integer COLORREF for background.
+ *    transparent - Logical or NIL. If .T., uses form background color for transparency (default: .F.).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Renders icon graphics onto form surface via DrawIconEx().
+ *    - Appends a repaint codeblock to global array _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION HMG_DrawIcon( window, icon, row, col, w, h, rgb, transparent )
    LOCAL FormHandle
    LOCAL backcolor
    LOCAL i
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply dimension and transparency defaults
       hb_default( @w, 0 )
       hb_default( @h, 0 )
       hb_default( @transparent, .F. )
+      // Resolve background color based on transparency mode and form configuration
       IF transparent
          backcolor := _HMG_aFormBkColor [i]
          IF IsArrayRGB( backcolor )
@@ -548,6 +539,7 @@ FUNCTION HMG_DrawIcon( window, icon, row, col, w, h, rgb, transparent )
       ENDIF
       hb_default( @rgb, GetSysColor( COLOR_BTNFACE ) )
 
+      // Handle numeric HICON handle versus named string resource icon loading
       IF ISNUMERIC( icon )
          DrawIconEx( FormHandle, Col, Row, icon, w, h, rgb, .F. )
          AAdd( _HMG_aFormGraphTasks [i] , {|| DrawIconEx( FormHandle, Col, Row, icon, w, h, rgb, .F. ) } )
@@ -559,45 +551,43 @@ FUNCTION HMG_DrawIcon( window, icon, row, col, w, h, rgb, transparent )
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-// FUNCTION HMG_DrawSysIcon( window, cIconDll, icon, row, col, w, h, rgb, transparent )
-//
-// Draws a system icon from a specified DLL on a window.
-//
-// Parameters:
-//   window      - The window handle or name where the icon will be drawn.
-//   cIconDll    - The path to the DLL containing the icon. Defaults to "imageres.dll" in the system folder.
-//   icon        - The index of the icon within the DLL.
-//   row         - The row coordinate (Y-axis) where the icon will be drawn.
-//   col         - The column coordinate (X-axis) where the icon will be drawn.
-//   w           - The width of the icon. If 0, the default icon width is used.
-//   h           - The height of the icon. If 0, the default icon height is used.
-//   rgb         - The RGB color value for the icon's background. If transparent is .T., this is used for transparency.
-//                 If an array is passed, it's assumed to be an RGB array (e.g., {255, 0, 0} for red).
-//   transparent - A logical value indicating whether the icon should be drawn with transparency.
-//                 If .T., the 'rgb' parameter is used as the transparent color.
-//
-// Returns:
-//   NIL
-//
-// Remarks:
-//   - This function retrieves the form handle based on the 'window' parameter.
-//   - It uses ExtractIcon to extract the icon from the specified DLL.
-//   - It adds a task to the form's graph tasks array (_HMG_aFormGraphTasks) to redraw the icon when the form is refreshed.
-//   - The default DLL is "imageres.dll" located in the system folder.
-//   - If 'transparent' is .T., the form's background color is used as the transparent color if 'rgb' is not provided.
-//   - If 'rgb' is not provided, the system button face color (COLOR_BTNFACE) is used as the default.
-//-----------------------------------------------------------------------------*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION HMG_DrawSysIcon( window, cIconDll, icon, row, col, w, h, rgb, transparent )
+ *
+ * Purpose:
+ *    Extracts a system icon by index from a dynamic link library (DLL) and queues
+ *    it for persistent rendering on a window.
+ *
+ * Parameters:
+ *    window      - Character or Numeric. Name of the form or form handle.
+ *    cIconDll    - Character or NIL. Path to icon library DLL (default: imageres.dll in system folder).
+ *    icon        - Numeric. Zero-based index of the icon resource inside the DLL.
+ *    row         - Numeric. Top Y-coordinate in pixels.
+ *    col         - Numeric. Left X-coordinate in pixels.
+ *    w           - Numeric or NIL. Target icon width in pixels (0 uses default).
+ *    h           - Numeric or NIL. Target icon height in pixels (0 uses default).
+ *    rgb         - Array, Numeric, or NIL. RGB color array {R,G,B} or integer COLORREF.
+ *    transparent - Logical or NIL. If .T., enables transparent drawing mode (default: .F.).
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Appends a repaint codeblock with ExtractIcon/DrawIconEx calls to _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION HMG_DrawSysIcon( window, cIconDll, icon, row, col, w, h, rgb, transparent )
    LOCAL FormHandle
    LOCAL backcolor
    LOCAL i
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Apply dimension and transparency defaults
       hb_default( @w, 0 )
       hb_default( @h, 0 )
       hb_default( @transparent, .F. )
+      // Resolve background color array conversion if provided
       IF transparent
          backcolor := _HMG_aFormBkColor [i]
          IF IsArrayRGB( backcolor )
@@ -611,6 +601,7 @@ FUNCTION HMG_DrawSysIcon( window, cIconDll, icon, row, col, w, h, rgb, transpare
       hb_default( @rgb, GetSysColor( COLOR_BTNFACE ) )
       hb_default( @cIconDll, System.SystemFolder + hb_ps() + "imageres.dll" )
 
+      // Extract icon index from library DLL and queue persistent drawing task block
       IF ISNUMERIC( icon )
          AAdd( _HMG_aFormGraphTasks [i] , {|| DrawIconEx( FormHandle, Col, Row, ExtractIcon( cIconDll, icon ), w, h, rgb, .T. ) } )
       ENDIF
@@ -618,28 +609,30 @@ FUNCTION HMG_DrawSysIcon( window, cIconDll, icon, row, col, w, h, rgb, transpare
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-// FUNCTION EraseWindow( window )
-//
-// Erases the graphical elements drawn on a window by clearing the graph tasks array.
-//
-// Parameters:
-//   window - The window handle or name to erase.
-//
-// Returns:
-//   NIL
-//
-// Remarks:
-//   - This function retrieves the form handle based on the 'window' parameter.
-//   - It clears the _HMG_aFormGraphTasks array associated with the window, effectively removing all stored drawing tasks.
-//   - It then calls RedrawWindow to force a repaint of the window, which will now be cleared of the previously drawn elements.
-//   - It checks if the form has been deleted before attempting to erase it.
-//-----------------------------------------------------------------------------*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION EraseWindow( window )
+ *
+ * Purpose:
+ *    Clears all persistent graphic drawing tasks associated with a window and
+ *    forces a full window repaint to restore the underlying background.
+ *
+ * Parameters:
+ *    window - Character or Numeric. Name of the form or form handle.
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Clears all elements from array _HMG_aFormGraphTasks[i].
+ *    - Triggers Win32 RedrawWindow() call to refresh the form surface.
+ *--------------------------------------------------------------------------------*/
 FUNCTION EraseWindow( window )
    LOCAL i
 
+   // Verify form registration index and check active window state
    IF ( i := GetFormIndex ( Window ) ) > 0
       IF ! _HMG_aFormDeleted [i]
+         // Empty graph task queue array and trigger immediate window repaint
          IF ISARRAY ( _HMG_aFormGraphTasks [i] )
             ASize ( _HMG_aFormGraphTasks [i], 0 )
             RedrawWindow ( _HMG_aFormHandles [i] )
@@ -649,75 +642,79 @@ FUNCTION EraseWindow( window )
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-// FUNCTION DrawWindowBoxIn( window, row, col, rowr, colr )
-//
-// Draws an inset box (sunken effect) on a window.
-//
-// Parameters:
-//   window - The window handle or name where the box will be drawn.
-//   row    - The top row coordinate (Y-axis) of the box.
-//   col    - The left column coordinate (X-axis) of the box.
-//   rowr   - The bottom row coordinate (Y-axis) of the box.
-//   colr   - The right column coordinate (X-axis) of the box.
-//
-// Returns:
-//   NIL
-//
-// Remarks:
-//   - This function retrieves the form handle based on the 'window' parameter.
-//   - It obtains the device context (DC) of the window.
-//   - It calls WndBoxIn to draw the inset box using the device context and coordinates.
-//   - It releases the device context.
-//   - It adds a task to the form's graph tasks array (_HMG_aFormGraphTasks) to redraw the box when the form is refreshed.
-//-----------------------------------------------------------------------------*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION DrawWindowBoxIn( window, row, col, rowr, colr )
+ *
+ * Purpose:
+ *    Draws a sunken 3D frame border (inset box) on a window and registers the task
+ *    in the form's task list for automatic repainting.
+ *
+ * Parameters:
+ *    window - Character or Numeric. Name of the form or form handle.
+ *    row    - Numeric. Top Y-coordinate in pixels.
+ *    col    - Numeric. Left X-coordinate in pixels.
+ *    rowr   - Numeric. Bottom Y-coordinate in pixels.
+ *    colr   - Numeric. Right X-coordinate in pixels.
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Obtains temporary DC and renders inset box frame on window via WndBoxIn().
+ *    - Appends a dynamic DC acquisition and repaint codeblock to _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION DrawWindowBoxIn( window, row, col, rowr, colr )
    LOCAL FormHandle
    LOCAL hDC
    LOCAL i
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Obtain window DC, render sunken 3D frame, and release DC immediately
       hDC := GetDC ( FormHandle )
       WndBoxIn ( hDC, row, col, rowr, colr )
       ReleaseDC ( FormHandle, hDC )
+      // Queue codeblock for repainting that handles DC acquisition dynamically
       AAdd( _HMG_aFormGraphTasks [i] , {|| WndBoxIn( ( hDC := GetDC( FormHandle ) ), row, col, rowr, colr ), ReleaseDC( FormHandle, hDC ) } )
    ENDIF
 
 RETURN NIL
 
-/*-----------------------------------------------------------------------------
-// FUNCTION DrawWindowBoxRaised( window, row, col, rowr, colr )
-//
-// Draws a raised box (3D effect) on a window.
-//
-// Parameters:
-//   window - The window handle or name where the box will be drawn.
-//   row    - The top row coordinate (Y-axis) of the box.
-//   col    - The left column coordinate (X-axis) of the box.
-//   rowr   - The bottom row coordinate (Y-axis) of the box.
-//   colr   - The right column coordinate (X-axis) of the box.
-//
-// Returns:
-//   NIL
-//
-// Remarks:
-//   - This function retrieves the form handle based on the 'window' parameter.
-//   - It obtains the device context (DC) of the window.
-//   - It calls WndBoxRaised to draw the raised box using the device context and coordinates.
-//   - It releases the device context.
-//   - It adds a task to the form's graph tasks array (_HMG_aFormGraphTasks) to redraw the box when the form is refreshed.
-//-----------------------------------------------------------------------------*/
+/*--------------------------------------------------------------------------------
+ * FUNCTION DrawWindowBoxRaised( window, row, col, rowr, colr )
+ *
+ * Purpose:
+ *    Draws a raised 3D frame border on a window and registers the drawing operation
+ *    in the form's task list for persistent repainting on window refresh.
+ *
+ * Parameters:
+ *    window - Character or Numeric. Name of the form or form handle.
+ *    row    - Numeric. Top Y-coordinate in pixels.
+ *    col    - Numeric. Left X-coordinate in pixels.
+ *    rowr   - Numeric. Bottom Y-coordinate in pixels.
+ *    colr   - Numeric. Right X-coordinate in pixels.
+ *
+ * Return Value:
+ *    NIL
+ *
+ * Side Effects:
+ *    - Obtains temporary DC and renders raised 3D box frame on window via WndBoxRaised().
+ *    - Appends a dynamic DC acquisition and repaint codeblock to _HMG_aFormGraphTasks[i].
+ *--------------------------------------------------------------------------------*/
 FUNCTION DrawWindowBoxRaised( window, row, col, rowr, colr )
    LOCAL FormHandle
    LOCAL hDC
    LOCAL i
 
+   // Validate registered form index and retrieve window handle
    IF ( i := GetFormIndex ( Window ) ) > 0
       FormHandle := _HMG_aFormHandles [i]
+      // Obtain window DC, render raised 3D frame, and release DC immediately
       hDC := GetDC ( FormHandle )
       WndBoxRaised ( hDC, row, col, rowr, colr )
       ReleaseDC ( FormHandle, hDC )
+      // Queue codeblock for repainting that handles DC acquisition dynamically
       AAdd( _HMG_aFormGraphTasks [i] , {|| WndBoxRaised( ( hDC := GetDC( FormHandle ) ), row, col, rowr, colr ), ReleaseDC( FormHandle, hDC ) } )
    ENDIF
 

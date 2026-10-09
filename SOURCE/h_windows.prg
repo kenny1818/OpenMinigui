@@ -52,9 +52,81 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
    SET PROCEDURE TO statics.prg
 #endif
 
+// Static variables used for text animation/scrolling effects in WaitWindow
 STATIC nCtEfeito := 0, cDescEfeito := ""
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _DefineWindow
+ * Purpose: Defines and registers standard HMG windows (Main, Child, MDI, or Panel).
+ *
+ * Parameters:
+ *   FormName                [C]   - Unique window identifier name.
+ *   Caption                 [C]   - Title bar caption text.
+ *   x                       [N]   - X position on screen (left offset).
+ *   y                       [N]   - Y position on screen (top offset).
+ *   w                       [N]   - Total window width in pixels.
+ *   h                       [N]   - Total window height in pixels.
+ *   nominimize              [L]   - Disables minimize button/style if .T.
+ *   nomaximize              [L]   - Disables maximize button/style if .T.
+ *   nosize                  [L]   - Prevents window resizing if .T.
+ *   nosysmenu               [L]   - Omits the system menu if .T.
+ *   nocaption               [L]   - Removes window title bar and border frame if .T.
+ *   aMin                    [A]   - Array of minimum { width, height } limits.
+ *   aMax                    [A]   - Array of maximum { width, height } limits.
+ *   InitProcedure           [B|C] - Event handler executed upon window activation.
+ *   ReleaseProcedure        [B|C] - Event handler executed upon window destruction.
+ *   MouseDragProcedure      [B|C] - Event handler executed during mouse drag.
+ *   SizeProcedure           [B|C] - Event handler executed when window is resized.
+ *   ClickProcedure          [B|C] - Event handler executed on mouse left click.
+ *   MouseMoveProcedure      [B|C] - Event handler executed on mouse movement.
+ *   aRGB                    [A|N] - Background color specification (RGB array or integer).
+ *   PaintProcedure          [B|C] - Custom painting event procedure for WM_PAINT.
+ *   noshow                  [L]   - Prevents automatically rendering window visible on activate.
+ *   topmost                 [L]   - Keeps window on top of all other windows if .T.
+ *   main                    [L]   - Identifies this window as the primary application window.
+ *   icon                    [C]   - Icon resource name or filename for window title bar.
+ *   child                   [L]   - Identifies window as a child form if .T.
+ *   fontname                [C]   - Default font family for controls inside window.
+ *   fontsize                [N]   - Default font size for controls inside window.
+ *   NotifyIconName          [C]   - System tray notification icon resource name.
+ *   NotifyIconTooltip       [C]   - System tray tooltip message.
+ *   NotifyIconLeftClick     [B|C] - Callback for system tray left mouse click.
+ *   GotFocus                [B|C] - Event handler executed when window gains focus.
+ *   LostFocus               [B|C] - Event handler executed when window loses focus.
+ *   VirtualHeight           [N]   - Scrollable area height if larger than physical height.
+ *   VirtualWidth            [N]   - Scrollable area width if larger than physical width.
+ *   scrollleft              [B|C] - Handler for horizontal scroll left event.
+ *   scrollright             [B|C] - Handler for horizontal scroll right event.
+ *   scrollup                [B|C] - Handler for vertical scroll up event.
+ *   scrolldown              [B|C] - Handler for vertical scroll down event.
+ *   hscrollbox              [B|C] - Handler for horizontal thumb scroll position change.
+ *   vscrollbox              [B|C] - Handler for vertical thumb scroll position change.
+ *   helpbutton              [L]   - Adds context help button (?) to title bar if .T.
+ *   MaximizeProcedure       [B|C] - Handler for window maximize event.
+ *   MinimizeProcedure       [B|C] - Handler for window minimize event.
+ *   cursor                  [C]   - Resource or file name for default mouse cursor.
+ *   NoAutoRelease           [L]   - Prevents auto-releasing memory upon close if .T.
+ *   InteractiveCloseProcedure [B|C] - Handler executed when user clicks window Close button ('X').
+ *   RestoreProcedure        [B|C] - Handler executed when window is restored from min/max.
+ *   MoveProcedure           [B|C] - Handler executed when window is moved.
+ *   DropProcedure           [B|C] - Handler executed when files are drag-and-dropped on window.
+ *   mdi                     [L]   - Designates window as an MDI client frame if .T.
+ *   palette                 [U]   - Custom color palette reference.
+ *   NotifyIconDblClick      [B|C] - Callback for double-click on system tray icon.
+ *   cPanelParent            [C]   - Form name of parent when panel == .T.
+ *   panel                   [L]   - Specifies if this window behaves as an embedded panel.
+ *   NotifyBalloonClick      [B|C] - Callback triggered when tray balloon notification is clicked.
+ *   clientwidth             [N]   - Specific inner client area width requested in pixels.
+ *   clientheight            [N]   - Specific inner client area height requested in pixels.
+ *
+ * Return:
+ *   [N] - Native Windows handle (HWND) of the newly created window.
+ *
+ * Side Effects:
+ *   Creates window object, updates internal HMG global state arrays (_HMG_aFormHandles,
+ *   _HMG_aFormNames, etc.), instantiates dynamic global pointer variable `_<FormName>`,
+ *   and registers window class with Win32 subsystem.
+ */
 FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, ;
       nosize, nosysmenu, nocaption, aMin, aMax, InitProcedure, ReleaseProcedure, ;
       MouseDragProcedure, SizeProcedure, ClickProcedure, MouseMoveProcedure, aRGB, ;
@@ -64,7 +136,6 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
       hscrollbox, vscrollbox, helpbutton, MaximizeProcedure, MinimizeProcedure, cursor, ;
       NoAutoRelease, InteractiveCloseProcedure, RestoreProcedure, MoveProcedure, DropProcedure, ;
       mdi, palette, NotifyIconDblClick, cPanelParent, panel, NotifyBalloonClick, clientwidth, clientheight )
-*-----------------------------------------------------------------------------*
    LOCAL BrushHandle, FormHandle, ParentHandle
    LOCAL hnotifyicon, htooltip
    LOCAL ClassName
@@ -76,11 +147,13 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    LOCAL o
 #endif
 
+   // Ensure Borland C++ 5.8 compatibility flag global variable is initialized
    IF _SetGetGlobal( "_HMG_SetBCC58Compatible" ) == NIL
       STATIC _HMG_SetBCC58Compatible AS GLOBAL VALUE .F.
    ENDIF
    hb_default( @panel, .F. )
 
+   // Assign dynamic default window name if omitted or set panel dimensions if applicable
    IF FormName == NIL
       FormName := _HMG_TempWindowName
 #ifdef _PANEL_
@@ -100,6 +173,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    ENDIF
 
 #ifdef _PANEL_
+   // Offset panel coordinates relative to active frame nesting level
    IF _HMG_FrameLevel > 0
       x := x + _HMG_ActiveFrameCol [ _HMG_FrameLevel ]
       y := y + _HMG_ActiveFrameRow [ _HMG_FrameLevel ]
@@ -111,6 +185,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
 
    FormName := AllTrim ( FormName )
 
+   // Perform structural validation checks depending on main vs secondary/child windows
    IF Main
 
       IF AScan ( _HMG_aFormType, 'A' ) > 0
@@ -148,6 +223,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    ENDIF
 
 #ifdef _PANEL_
+   // Validate panel parent requirements and scope constraints
    IF ValType( cPanelParent ) == 'C' .AND. panel == .F.
       MsgMiniGuiError( "Parent can be specified only for Panel windows." )
    ENDIF
@@ -159,12 +235,13 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    HB_SYMBOL_UNUSED( cPanelParent )
 #endif
 
+   // Calculate window dimensions dynamically when explicit sizes are omitted
    IF !ISNUMBER( w ) .AND. !ISNUMBER( h )
       IF !ISNUMBER( clientwidth ) .AND. !ISNUMBER( clientheight )
          w := GetDesktopWidth()
          h := GetDesktopHeight()
          IF child
-            IF w / h > 1.4 // widescreen display
+            IF w / h > 1.4 // Apply adjusted scale factor for widescreen displays
                w *= .5
                h *= .77
             ELSE
@@ -176,6 +253,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
             h -= GetTaskBarHeight()
          ENDIF
       ELSE
+         // Calculate window frame sizes based on target inner client dimensions
          mVar := ( nocaption .AND. nosize )
          w := ClientWidth + iif( mVar, 0, GetBorderWidth() ) + iif( mVar .OR. _HMG_IsThemed .AND. nosize, 0, GetBorderWidth() ) - iif( mVar .OR. (!_HMG_IsThemed .AND. !nosize) .OR. (_HMG_IsThemed .AND. !nocaption .AND. !nosize), 0, 2 )
          h := ClientHeight + iif( nocaption, 0, GetTitleHeight() ) + iif( mVar .OR. _HMG_IsThemed .AND. nosize, 0, GetBorderWidth() ) + iif( mVar, 0, GetBorderWidth() ) - iif( mVar .OR. (!_HMG_IsThemed .AND. !nosize) .OR. (_HMG_IsThemed .AND. !nocaption .AND. !nosize), 0, 2 )
@@ -200,6 +278,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    ParentHandle := iif( child == .T., _HMG_MainHandle, 0 )
 
 #ifdef _PANEL_
+   // Establish parent handle for embedded Panel windows
    IF panel == .T.
 
       IF ValType( cPanelParent ) == 'C'
@@ -226,10 +305,12 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    ENDIF
 #endif
 
+   // Store default active window font specifications
    _HMG_ActiveFontName := hb_defaultValue( FontName, _HMG_DefaultFontName )
 
    _HMG_ActiveFontSize := hb_defaultValue( FontSize, _HMG_DefaultFontSize )
 
+   // Set default values for optional procedure/event parameters
    hb_default( @Caption, "" )
    __defaultNIL( @InitProcedure, "" )
    __defaultNIL( @ReleaseProcedure, "" )
@@ -247,6 +328,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    __defaultNIL( @hscrollbox, "" )
    __defaultNIL( @vscrollbox, "" )
 
+   // Configure vertical scrolling state based on virtual canvas height
    IF VirtualHeight == NIL
       VirtualHeight := 0
       vscroll := .F.
@@ -257,6 +339,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
       vscroll := .T.
    ENDIF
 
+   // Configure horizontal scrolling state based on virtual canvas width
    IF VirtualWidth == NIL
       VirtualWidth := 0
       hscroll := .F.
@@ -267,6 +350,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
       hscroll := .T.
    ENDIF
 
+   // Process RGB background color array conversion if numeric
    IF ValType ( aRGB ) == 'N'
       aRGB := nRGB2Arr( aRGB )
    ENDIF
@@ -281,7 +365,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
 
    _HMG_ActiveFormName := FormName
    IF mdi
-      _HMG_MainClientMDIName := FormName  // JP MDI
+      _HMG_MainClientMDIName := FormName  // Set MDI main client reference
    ENDIF
 
    _HMG_BeginWindowActive := .T.
@@ -289,20 +373,22 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    ClassName := "HMG_FORM_" + FormName
    UnRegisterWindow ( ClassName )
 
+   // Register window class and construct Win32 API window object
    IF mdi
-      _HMG_BeginWindowMDIActive := .T.  // JP MDI
+      _HMG_BeginWindowMDIActive := .T.  // Set MDI definition flag
       BrushHandle := RegisterMDIWindow( icon, FormName, aRGB )
       Formhandle := InitMDIWindow( Caption, x, y, w, h, nominimize, nomaximize, nosize, nosysmenu, nocaption, topmost, FormName, ParentHandle, vscroll, hscroll, helpbutton )
    ELSE
-      BrushHandle := RegisterWindow( icon, ClassName, aRGB, cursor )  /* P.Ch. 16.10. */
+      BrushHandle := RegisterWindow( icon, ClassName, aRGB, cursor )  // Register class with custom background brush/cursor
       Formhandle := InitWindow( Caption, x, y, w, h, nominimize, nomaximize, nosize, nosysmenu, nocaption, topmost, ClassName, ParentHandle, vscroll, hscroll, helpbutton, palette, panel )
    ENDIF
 
+   // Disable close button ('X') on caption bar when close behavior is restricted
    IF Empty( _HMG_InteractiveClose ) .AND. !Main .AND. !nosysmenu .AND. !nocaption
       xDisableCloseButton( FormHandle, .F. )
    ENDIF
 
-   IF mdi .AND. cursor != NIL  /* P.Ch. 16.10. */
+   IF mdi .AND. cursor != NIL  // Set explicit window cursor for MDI forms
       SetWindowCursor ( FormHandle, cursor )
    ENDIF
 
@@ -313,6 +399,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
       ENDIF
    ENDIF
 
+   // Initialize system tray notification icon if provided
    IF NotifyIconName == NIL
       NotifyIconName := ""
    ELSE
@@ -320,6 +407,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
       ShowNotifyIcon ( FormHandle, .T., hnotifyicon, NotifyIconTooltip )
    ENDIF
 
+   // Attach tooltip control to the window
    htooltip := InitToolTip ( FormHandle, SetToolTipBalloon() )
 
    IF SetToolTipMaxWidth() <> -1
@@ -328,6 +416,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
 
    cType := iif( Main == .T., 'A', iif( Child == .T., 'C', iif( Panel == .T., 'P', 'S' ) ) )
 
+   // Check for recyclable array index slot in global form storage
    k := AScan ( _HMG_aFormDeleted, .T. )
 
    IF k > 0
@@ -394,6 +483,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
 
    ELSE
 
+      // Append new slot to global form arrays
       k := Len( _HMG_aFormNames ) + 1
 
 #ifdef _NAMES_LIST_
@@ -459,6 +549,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
    ENDIF
 
 #ifdef _PANEL_
+   // Map panel window to active parent tab page
    IF _HMG_BeginTabActive .AND. Panel
       AAdd ( _HMG_ActiveTabCurrentPageMap, FormHandle )
       IF _HMG_ActiveTabPage > 1
@@ -469,6 +560,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
 
    _SetThisFormInfo ( k )
 
+   // Initialize OOP object wrapper if object framework is enabled
    IF _HMG_lOOPEnabled
       Eval ( _HMG_bOnFormInit, k, mVar )
 #ifdef _OBJECT_
@@ -481,10 +573,11 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
 #endif
 	ENDIF
 
-   IF !mdi  // JP MDI
+   IF !mdi  // Skip dummy window creation for MDI frames
       InitDummy ( FormHandle )
    ENDIF
 
+   // Set native Windows scrollbar ranges for virtual window canvas
    IF VirtualHeight > 0
       SetScrollRange ( Formhandle, SB_VERT, 0, VirtualHeight - h, .T. )
    ENDIF
@@ -492,6 +585,7 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
       SetScrollRange ( Formhandle, SB_HORZ, 0, VirtualWidth - w, .T. )
    ENDIF
 
+   // Store explicit min/max window dimension restrictions
    IF ISARRAY ( aMin ) .AND. ISARRAY ( aMax )
       iif( aMin[ 1 ] == NIL, NIL, _HMG_aFormMinMaxInfo [ k ] [ 5 ] := aMin[ 1 ] )
       iif( aMin[ 2 ] == NIL, NIL, _HMG_aFormMinMaxInfo [ k ] [ 6 ] := aMin[ 2 ] )
@@ -501,13 +595,67 @@ FUNCTION _DefineWindow ( FormName, Caption, x, y, w, h, nominimize, nomaximize, 
 
 RETURN ( FormHandle )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _DefineModalWindow
+ * Purpose: Defines and registers a modal window that blocks user interaction with parent forms.
+ *
+ * Parameters:
+ *   FormName                [C]   - Identifier name of the modal window.
+ *   Caption                 [C]   - Title bar caption.
+ *   x                       [N]   - X screen coordinate.
+ *   y                       [N]   - Y screen coordinate.
+ *   w                       [N]   - Modal window width in pixels.
+ *   h                       [N]   - Modal window height in pixels.
+ *   Parent                  [N]   - HWND handle of parent form.
+ *   nosize                  [L]   - Prevents window resizing if .T.
+ *   nosysmenu               [L]   - Omits the system menu if .T.
+ *   nocaption               [L]   - Removes window title bar if .T.
+ *   aMin                    [A]   - Array of minimum size limits { width, height }.
+ *   aMax                    [A]   - Array of maximum size limits { width, height }.
+ *   InitProcedure           [B|C] - Event procedure run upon activation.
+ *   ReleaseProcedure        [B|C] - Event procedure run upon window release.
+ *   MouseDragProcedure      [B|C] - Handler for mouse drag.
+ *   SizeProcedure           [B|C] - Handler for WM_SIZE events.
+ *   ClickProcedure          [B|C] - Handler for mouse left clicks.
+ *   MouseMoveProcedure      [B|C] - Handler for mouse movement.
+ *   aRGB                    [A|N] - Background color array or integer color code.
+ *   PaintProcedure          [B|C] - Handler for custom WM_PAINT commands.
+ *   icon                    [C]   - Name of window icon resource.
+ *   FontName                [C]   - Default font name.
+ *   FontSize                [N]   - Default font size.
+ *   GotFocus                [B|C] - Focus gain handler.
+ *   LostFocus               [B|C] - Focus loss handler.
+ *   VirtualHeight           [N]   - Scrollable height.
+ *   VirtualWidth            [N]   - Scrollable width.
+ *   scrollleft              [B|C] - Horizontal scroll left callback.
+ *   scrollright             [B|C] - Horizontal scroll right callback.
+ *   scrollup                [B|C] - Vertical scroll up callback.
+ *   scrolldown              [B|C] - Vertical scroll down callback.
+ *   hscrollbox              [B|C] - Horizontal thumb scroll callback.
+ *   vscrollbox              [B|C] - Vertical thumb scroll callback.
+ *   helpbutton              [L]   - Adds context help button if .T.
+ *   cursor                  [C]   - Mouse cursor name/resource.
+ *   noshow                  [L]   - Prevents rendering visible upon activation if .T.
+ *   NoAutoRelease           [L]   - Keeps memory active after close if .T.
+ *   InteractiveCloseProcedure [B|C] - Close button handler.
+ *   MoveProcedure           [B|C] - Window movement handler.
+ *   DropProcedure           [B|C] - File drag and drop handler.
+ *   clientwidth             [N]   - Target client area width.
+ *   clientheight            [N]   - Target client area height.
+ *   flashexit               [L]   - Modal execution exit style flag.
+ *
+ * Return:
+ *   [N] - Native Windows handle (HWND) of modal window.
+ *
+ * Side Effects:
+ *   Creates a modal window object, disables parent windows during modal loop execution,
+ *   and registers window details in global HMG forms structures.
+ */
 FUNCTION _DefineModalWindow ( FormName, Caption, x, y, w, h, Parent, nosize, nosysmenu, nocaption, aMin, aMax, ;
       InitProcedure, ReleaseProcedure, MouseDragProcedure, SizeProcedure, ClickProcedure, MouseMoveProcedure, aRGB, ;
       PaintProcedure, icon, FontName, FontSize, GotFocus, LostFocus, VirtualHeight, VirtualWidth, ;
       scrollleft, scrollright, scrollup, scrolldown, hscrollbox, vscrollbox, helpbutton, cursor, noshow, ;
       NoAutoRelease, InteractiveCloseProcedure, MoveProcedure, DropProcedure, clientwidth, clientheight, flashexit )
-*-----------------------------------------------------------------------------*
    LOCAL BrushHandle, FormHandle
    LOCAL htooltip
    LOCAL ClassName
@@ -525,6 +673,7 @@ FUNCTION _DefineModalWindow ( FormName, Caption, x, y, w, h, Parent, nosize, nos
       FormName := _HMG_TempWindowName
    ENDIF
 
+   // Modal forms require an existing Main Window definition
    IF _HMG_MainWindowFirst == .T.
       IF AScan ( _HMG_aFormType, 'A' ) == 0
          MsgMiniGuiError( "Main Window is not defined." )
@@ -535,12 +684,13 @@ FUNCTION _DefineModalWindow ( FormName, Caption, x, y, w, h, Parent, nosize, nos
       MsgMiniGuiError( "Window: " + FormName + " is already defined." )
    ENDIF
 
+   // Calculate default window size if omitted
    IF !ISNUMBER( w ) .AND. !ISNUMBER( h )
 
       IF !ISNUMBER( clientwidth ) .AND. !ISNUMBER( clientheight )
          w := GetDesktopWidth()
          h := GetDesktopHeight()
-         IF w / h > 1.75 // widescreen display
+         IF w / h > 1.75 // Scale for widescreen monitor aspect ratios
             w *= .4
             h *= .6
          ELSE
@@ -622,6 +772,7 @@ FUNCTION _DefineModalWindow ( FormName, Caption, x, y, w, h, Parent, nosize, nos
       icon := _HMG_DefaultIconName
    ENDIF
 
+   // Determine parent owner window for inplace modal nesting
    IF _HMG_OwnerModalHandle
       _HMG_InplaceParentHandle := iif( _HMG_BeginWindowMDIActive, GetActiveMdiHandle(), GetActiveWindow() )
    ENDIF
@@ -821,10 +972,42 @@ FUNCTION _DefineModalWindow ( FormName, Caption, x, y, w, h, Parent, nosize, nos
 
 RETURN ( FormHandle )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _DefineSplitChildWindow
+ * Purpose: Defines a child window panel embedded within a SplitBox rebar container.
+ *
+ * Parameters:
+ *   FormName      [C]   - Unique window identifier name.
+ *   w             [N]   - Width in pixels.
+ *   h             [N]   - Height in pixels.
+ *   break         [L]   - Forces a new band/line break in the SplitBox if .T.
+ *   grippertext   [C]   - Caption displayed on the split band gripper.
+ *   nocaption     [L]   - Suppresses title caption if .T.
+ *   title         [C]   - Band title text.
+ *   fontname      [C]   - Default font family.
+ *   fontsize      [N]   - Default font size.
+ *   gotfocus      [B|C] - Event handler run on focus gain.
+ *   lostfocus     [B|C] - Event handler run on focus loss.
+ *   virtualheight [N]   - Scrollable canvas height.
+ *   VirtualWidth  [N]   - Scrollable canvas width.
+ *   Focused       [L]   - Sets initial focus flag if .T.
+ *   scrollleft    [B|C] - Scroll left callback.
+ *   scrollright   [B|C] - Scroll right callback.
+ *   scrollup      [B|C] - Scroll up callback.
+ *   scrolldown    [B|C] - Scroll down callback.
+ *   hscrollbox    [B|C] - Horizontal thumb scroll callback.
+ *   vscrollbox    [B|C] - Vertical thumb scroll callback.
+ *   cursor        [C]   - Custom mouse cursor code/resource.
+ *
+ * Return:
+ *   [N] - HWND handle of the created split child window.
+ *
+ * Side Effects:
+ *   Adds a new band item to the parent ReBar control and attaches form metadata
+ *   to `_HMG_aFormSplitChildList`.
+ */
 FUNCTION _DefineSplitChildWindow ( FormName, w, h, break, grippertext, nocaption, title, fontname, fontsize, gotfocus, lostfocus, ;
       virtualheight, VirtualWidth, Focused, scrollleft, scrollright, scrollup, scrolldown, hscrollbox, vscrollbox, cursor )
-*-----------------------------------------------------------------------------*
    LOCAL aRGB := { -1, -1, -1 }
    LOCAL BrushHandle, FormHandle
    LOCAL htooltip
@@ -852,6 +1035,7 @@ FUNCTION _DefineSplitChildWindow ( FormName, w, h, break, grippertext, nocaption
       MsgMiniGuiError( "Window: " + FormName + " is already defined." )
    ENDIF
 
+   // Split child windows must reside strictly inside a SplitBox block
    IF _HMG_ActiveSplitBox == .F.
       MsgMiniGuiError( "SplitChild Windows can be defined only inside SplitBox." )
    ENDIF
@@ -908,6 +1092,7 @@ FUNCTION _DefineSplitChildWindow ( FormName, w, h, break, grippertext, nocaption
          Break := .T.
       ENDIF
 
+      // Insert item band into the host ReBar control
       AddSplitBoxItem ( FormHandle, _HMG_aFormReBarHandle [i], w, break, grippertext,  ,  , _HMG_ActiveSplitBoxInverted )
 
       nBand := GetBandCount ( _HMG_aFormReBarHandle [i] )
@@ -1087,13 +1272,25 @@ FUNCTION _DefineSplitChildWindow ( FormName, w, h, break, grippertext, nocaption
 
 RETURN ( FormHandle )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetThisFormInfo
+ * Purpose: Updates pseudo-variables and global context information for the target form.
+ *
+ * Parameters:
+ *   i [N|C|O] - (Optional) 1-based index, window name, or window object reference.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Modifies `_HMG_ThisFormIndex`, `_HMG_ThisFormName`, `_HMG_ThisType`, and event stacks.
+ */
 FUNCTION _SetThisFormInfo ( i )
-*-----------------------------------------------------------------------------*
-   LOCAL lDefine := .T. // BK 18.05.2015
+   LOCAL lDefine := .T. // Flag indicating window creation event context
 
    IF PCount() == 0
 
+      // Pop previous form event context off stack when no parameters supplied
       _PopEventInfo()
 
    ELSE
@@ -1124,9 +1321,24 @@ FUNCTION _SetThisFormInfo ( i )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetWindowSizePos
+ * Purpose: Resizes and/or repositions a target window on screen.
+ *
+ * Parameters:
+ *   FormName [C|N] - Window name or native HWND handle.
+ *   row      [N]   - New Y coordinate (row) in pixels.
+ *   col      [N]   - New X coordinate (column) in pixels.
+ *   width    [N]   - New window width in pixels.
+ *   height   [N]   - New window height in pixels.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Invokes Win32 API MoveWindow function causing GUI window redraw/relocation.
+ */
 FUNCTION _SetWindowSizePos ( FormName, row, col, width, height )
-*-----------------------------------------------------------------------------*
    LOCAL actpos := { 0, 0, 0, 0 }
    LOCAL hWnd := iif( ISNUMERIC( FormName ), FormName, GetFormHandle ( FormName ) )
 #ifdef _PANEL_
@@ -1134,12 +1346,14 @@ FUNCTION _SetWindowSizePos ( FormName, row, col, width, height )
 #endif
    GetWindowRect( hWnd, /*@*/actpos )
 
+   // Fallback to current dimensions/position for omitted parameters
    col    := IFNIL( col, actpos [ 1 ], col )
    row    := IFNIL( row, actpos [ 2 ], row )
    width  := IFNIL( width, actpos [ 3 ] - actpos [ 1 ], width )
    height := IFNIL( height, actpos [ 4 ] - actpos [ 2 ], height )
 
 #ifdef _PANEL_
+   // Adjust panel coordinates to client area of parent container window
    IF ISCHARACTER( FormName ) .AND. GetWindowType ( FormName ) == 'P'
       IF lspang
          col += GetBorderWidth()
@@ -1154,9 +1368,20 @@ FUNCTION _SetWindowSizePos ( FormName, row, col, width, height )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _GetWindowSizePos
+ * Purpose: Queries the current screen coordinates and dimensions of a window.
+ *
+ * Parameters:
+ *   FormName [C|N] - Window identifier string or HWND handle.
+ *
+ * Return:
+ *   [A] - Array { row, col, width, height } in pixels.
+ *
+ * Side Effects:
+ *   Queries native Win32 window metrics.
+ */
 FUNCTION _GetWindowSizePos ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL actpos := { 0, 0, 0, 0 }
    LOCAL hWnd := iif( ISNUMERIC( FormName ), FormName, GetFormHandle ( FormName ) )
    LOCAL row, col, width, height
@@ -1168,6 +1393,7 @@ FUNCTION _GetWindowSizePos ( FormName )
    height := actpos [ 4 ] - actpos [ 2 ]
 
 #ifdef _PANEL_
+   // Offset window rect metrics when handling Panel controls
    IF ISCHARACTER( FormName ) .AND. GetWindowType ( FormName ) == 'P'
       col -= GetBorderWidth()
       row -= GetTitleHeight() + GetBorderHeight()
@@ -1176,9 +1402,20 @@ FUNCTION _GetWindowSizePos ( FormName )
 
 RETURN { row, col, width, height }
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: GetFormIndex
+ * Purpose: Resolves a form index from its string identifier name.
+ *
+ * Parameters:
+ *   FormName [C] - Window identifier string name.
+ *
+ * Return:
+ *   [N] - 1-based index in `_HMG_aFormNames`, or 0 if not defined.
+ *
+ * Side Effects:
+ *   Reads internal variable name table or dynamic global variables (`_<FormName>`).
+ */
 FUNCTION GetFormIndex ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL mVar := '_' + FormName
 
 #ifdef _NAMES_LIST_
@@ -1187,9 +1424,21 @@ RETURN _GetNameList ( mVar )
 RETURN __mvGetDef ( mVar , 0 )
 #endif
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetNotifyIconName
+ * Purpose: Updates or changes the notification icon assigned to a main window in the system tray.
+ *
+ * Parameters:
+ *   FormName [C] - Name of the host window.
+ *   IconName [C] - Resource name or file path of the new icon.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Loads icon resource, frees old handle, and calls Shell_NotifyIcon API via ChangeNotifyIcon.
+ */
 FUNCTION _SetNotifyIconName ( FormName, IconName )
-*-----------------------------------------------------------------------------*
    LOCAL i
 
    IF ( i := GetFormIndex ( FormName ) ) > 0 .AND. _HMG_aFormType [ i ] == 'A'
@@ -1208,9 +1457,21 @@ FUNCTION _SetNotifyIconName ( FormName, IconName )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetNotifyIconTooltip
+ * Purpose: Updates the tooltip text shown when mouse hovers over system tray icon.
+ *
+ * Parameters:
+ *   FormName    [C] - Name of target form.
+ *   TooltipText [C] - New tooltip message text.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Updates system tray icon tooltips via Win32 Shell API.
+ */
 FUNCTION _SetNotifyIconTooltip ( FormName, TooltipText )
-*-----------------------------------------------------------------------------*
    LOCAL i
 
    IF ( i := GetFormIndex ( FormName ) ) > 0 .AND. _HMG_aFormType [ i ] == 'A'
@@ -1227,9 +1488,22 @@ FUNCTION _SetNotifyIconTooltip ( FormName, TooltipText )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _DefineSplitBox
+ * Purpose: Creates a ReBar band container control (SplitBox) on a parent window.
+ *
+ * Parameters:
+ *   ParentForm [C] - Name of parent window.
+ *   bottom     [L] - Aligns SplitBox at the window bottom if .T.
+ *   inverted   [L] - Inverts splitter alignment behavior if .T.
+ *
+ * Return:
+ *   [N] - HWND handle of created ReBar control.
+ *
+ * Side Effects:
+ *   Creates Win32 ReBar control and sets active splitbox global status flags.
+ */
 FUNCTION _DefineSplitBox ( ParentForm, bottom, inverted )
-*-----------------------------------------------------------------------------*
    LOCAL ControlHandle
    LOCAL i
 
@@ -1265,18 +1539,40 @@ FUNCTION _DefineSplitBox ( ParentForm, bottom, inverted )
 
 RETURN ControlHandle
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _EndSplitBox
+ * Purpose: Finalizes definition block for a SplitBox control structure.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Resets `_HMG_ActiveSplitBox` state flag to .F.
+ */
 FUNCTION _EndSplitBox ()
-*-----------------------------------------------------------------------------*
 
    _HMG_SplitLastControl := 'TOOLBAR'
    _HMG_ActiveSplitBox := .F.
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _EndSplitChildWindow
+ * Purpose: Finalizes definition block for a SplitChild window within a SplitBox.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Restores previous active window context and sets form activation state flag.
+ */
 FUNCTION _EndSplitChildWindow ()
-*-----------------------------------------------------------------------------*
 
    _HMG_ActiveFormName := _HMG_ActiveFormNameBak
    _HMG_SplitChildActive := .F.
@@ -1285,9 +1581,20 @@ FUNCTION _EndSplitChildWindow ()
 RETURN NIL
 
 #ifdef _PANEL_
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _EndPanelWindow
+ * Purpose: Finalizes definition block for an embedded Panel window.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Restores active form state and resets `_HMG_ParentWindowActive`.
+ */
 FUNCTION _EndPanelWindow ()
-*-----------------------------------------------------------------------------*
 
    _HMG_ActiveFormName := _HMG_ActiveFormNameBak
    _HMG_ParentWindowActive := .F.
@@ -1295,9 +1602,21 @@ FUNCTION _EndPanelWindow ()
 RETURN NIL
 
 #endif
-*-----------------------------------------------------------------------------*
+
+/*
+ * Routine: _EndWindow
+ * Purpose: Closes the current DEFINE WINDOW block structure for any window type.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Resets `_HMG_BeginWindowActive` to .F., updates active form globals, and pops event context.
+ */
 FUNCTION _EndWindow ()
-*-----------------------------------------------------------------------------*
 
    DO CASE
    CASE _HMG_SplitChildActive == .T.
@@ -1306,7 +1625,7 @@ FUNCTION _EndWindow ()
    CASE _HMG_ParentWindowActive == .T.
       _EndPanelWindow ()
 #endif
-   CASE _HMG_MdiChildActive == .T.  // JP MDI
+   CASE _HMG_MdiChildActive == .T.  // Process MDI Child window end
       _EndMdiChildWindow ()
    OTHERWISE
       _HMG_BeginWindowActive := .F.
@@ -1317,9 +1636,26 @@ FUNCTION _EndWindow ()
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: InputBox
+ * Purpose: Displays a modal dialog box prompting the user to enter text.
+ *
+ * Parameters:
+ *   cInputPrompt   [C] - Label text instructing the user.
+ *   cDialogCaption [C] - Window title caption.
+ *   cDefaultValue  [C] - Initial default value for textbox.
+ *   nTimeout       [N] - Auto-close timer interval in milliseconds.
+ *   cTimeoutValue  [C] - Return value if dialog times out.
+ *   lMultiLine     [L] - Enables multiline editbox input if .T.
+ *   lCanceled     [@L] - Output pass-by-reference flag set to .T. if user cancels.
+ *
+ * Return:
+ *   [C] - String value entered by user, or default value / timeout value if cancelled.
+ *
+ * Side Effects:
+ *   Creates, renders, and activates a modal window named `_InputBox`, then destroys it.
+ */
 FUNCTION InputBox ( cInputPrompt, cDialogCaption, cDefaultValue, nTimeout, cTimeoutValue, lMultiLine, /*@*/lCanceled )
-*-----------------------------------------------------------------------------*
    LOCAL lIsVistaOrLater := IsVistaOrLater()
    LOCAL nBordW  := iif( lIsVistaOrLater, GetBorderWidth() / 2 + 2, 0 )
    LOCAL nTitleH := GetTitleHeight() + iif( lIsVistaOrLater, GetBorderHeight() / 2 + 2, 0 )
@@ -1343,7 +1679,6 @@ FUNCTION InputBox ( cInputPrompt, cDialogCaption, cDefaultValue, nTimeout, cTime
       ON KEY ESCAPE ACTION Eval( bCancel )
 
       @ 07, 10 LABEL _Label VALUE cInputPrompt AUTOSIZE
-      // JK
       IF nMLines > 0
          @ 30, 10 EDITBOX _TextBox VALUE cDefaultValue HEIGHT 26 + nMLines WIDTH 320
       ELSE
@@ -1352,7 +1687,7 @@ FUNCTION InputBox ( cInputPrompt, cDialogCaption, cDefaultValue, nTimeout, cTime
 
          _InputBox.MaxHeight := ( _InputBox.Height )
       ENDIF
-      //
+
       @ 67 + nMLines, 120 BUTTON _Ok;
          CAPTION _HMG_MESSAGE [ 6 ];
          ACTION ( lOk := .T., _HMG_DialogCancelled := lCanceled := .F., ;
@@ -1381,9 +1716,21 @@ FUNCTION InputBox ( cInputPrompt, cDialogCaption, cDefaultValue, nTimeout, cTime
 
 RETURN ( RetVal )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _InputBoxAdjust
+ * Purpose: Resizes and repositions inner controls inside the InputBox on WM_SIZE events.
+ *
+ * Parameters:
+ *   nTitleH [N] - Title bar height metric.
+ *   nBordW  [N] - Border width metric.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Updates control dimensions and invalidates input box region for redraw.
+ */
 STATIC PROCEDURE _InputBoxAdjust ( nTitleH, nBordW )
-*-----------------------------------------------------------------------------*
    LOCAL nWidth  := _InputBox.Width
    LOCAL nHeight := _InputBox.Height
 
@@ -1396,22 +1743,51 @@ STATIC PROCEDURE _InputBoxAdjust ( nTitleH, nBordW )
    _InputBox._Cancel.Row     := nHeight - 48 - nTitleH
    _InputBox._Cancel.Col     := nWidth  - 120 - nBordW
 
-   InvalidateRect( GetFormHandle( '_InputBox' ), 0 )  // GF 11/05/2009
+   InvalidateRect( GetFormHandle( '_InputBox' ), 0 )  // Force window repaint
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetWindowRgn
+ * Purpose: Applies a rectangular clipping region to a window.
+ *
+ * Parameters:
+ *   name [C] - Window name identifier.
+ *   col  [N] - Region X offset.
+ *   row  [N] - Region Y offset.
+ *   w    [N] - Region width.
+ *   h    [N] - Region height.
+ *   lx   [N] - Corner roundness parameter or region type flag.
+ *
+ * Return:
+ *   [N] - Region handle (HRGN).
+ *
+ * Side Effects:
+ *   Calls Win32 SetWindowRgn function altering non-rectangular visual bounds of window.
+ */
 FUNCTION _SetWindowRgn ( name, col, row, w, h, lx )
-*-----------------------------------------------------------------------------*
    LOCAL i := GetFormIndex ( name )
 
    _HMG_aFormMiscData1 [ i ] [ 3 ] := c_SetWindowRgn( GetFormHandle( name ), col, row, w, h, lx )
 
 RETURN _HMG_aFormMiscData1 [ i ] [ 3 ]
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetPolyWindowRgn
+ * Purpose: Applies a custom polygonal clipping region to a window.
+ *
+ * Parameters:
+ *   name    [C] - Window identifier string.
+ *   apoints [A] - Array of { X, Y } vertex coordinate pairs.
+ *   lx      [N] - Polygon fill mode flag.
+ *
+ * Return:
+ *   [N] - Region handle (HRGN).
+ *
+ * Side Effects:
+ *   Applies custom polygon window region via Win32 C library call.
+ */
 FUNCTION _SetPolyWindowRgn ( name, apoints, lx )
-*-----------------------------------------------------------------------------*
    LOCAL i := GetFormIndex ( name )
    LOCAL apx := {}, apy := {}
 
@@ -1421,9 +1797,23 @@ FUNCTION _SetPolyWindowRgn ( name, apoints, lx )
 
 RETURN _HMG_aFormMiscData1 [ i ] [ 3 ]
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _ActivateWindow
+ * Purpose: Activates one or more specified defined windows and enters the event message loop.
+ *
+ * Parameters:
+ *   aForm     [A] - Array of window names or single string name wrapped in an array.
+ *   lNoWait   [L] - Skips entering message loop if .T.
+ *   lDebugger [L] - Internal flag indicating debug execution mode.
+ *   bInit     [B] - Optional initial block procedure parameter.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Displays window(s), executes init callbacks, refreshes controls, and runs DO MESSAGE LOOP.
+ */
 FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
-*-----------------------------------------------------------------------------*
    LOCAL MainFound := .F.
    LOCAL nForm := Len( aForm )
    LOCAL VisibleModalCount := 0
@@ -1435,6 +1825,7 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
    LOCAL x, FormCount := Len ( _HMG_aFormNames )
 #endif
 
+   // Validate window activation state constraints
    IF _HMG_ThisEventType == 'WINDOW_RELEASE'
       IF !( "_ALERT" $ ProcName( 1 ) .OR. ProcName( 2 ) == "_ALERT" )
          MsgMiniGuiError( "ACTIVATE WINDOW: activate windows within an ON RELEASE window procedure is not allowed." )
@@ -1453,7 +1844,7 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
       MsgMiniGUIError( "ACTIVATE WINDOW / Activate(): Not allowed in window's LOSTFOCUS event procedure." )
    ENDIF
 
-   * Look For Main Window
+   // Search form array for primary main application window
    FOR EACH FormName IN aForm
 
       i := GetFormIndex ( FormName )
@@ -1468,7 +1859,7 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
    NEXT
 
    IF _HMG_MainWindowFirst == .T.
-      * Main Check
+      // Validate correct sequence for Main Window activation
       IF _HMG_MainActive == .F.
          IF MainFound == .F.
             MsgMiniGUIError( "ACTIVATE WINDOW: Main Window must be activated in the first ACTIVATE WINDOW command." )
@@ -1482,7 +1873,6 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
 
    hb_default( @lNoWait, .F. )
 
-   * Set Main Active Public Flag
    IF MainFound == .T.
       _HMG_MainActive := .T.
    ENDIF
@@ -1513,11 +1903,11 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
          i := GetFormIndex ( FormName )
 
 #ifdef _PANEL_
+         // Automatically activate child panel windows attached to this parent
          FOR x := 1 TO FormCount
 
             IF _HMG_aFormType [ x ] == 'P' .AND. _HMG_aFormParentHandle [ x ] == _HMG_aFormHandles [ i ]
 
-               * If NOSHOW Clause Is Not Specified, Show The Panel Window
                IF _HMG_aFormNoShow [ x ] == .F.
                   _ShowWindow ( _HMG_aFormNames [ x ] )
                ENDIF
@@ -1534,7 +1924,7 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
 
          NEXT x
 #endif
-         * Only One Visible Modal is Allowed
+         // Validate modal window display constraints
          IF _HMG_aFormType [ i ] == "M" .AND. _HMG_aFormNoShow [ i ] == .F.
             VisibleModalName := _HMG_aFormNames [ i ]
             IF ++VisibleModalCount > 1
@@ -1542,10 +1932,8 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
             ENDIF
          ENDIF
 
-         * Set Activate Id
          _HMG_aFormActivateId [ i ] := TmpId
 
-         * If NOSHOW Clause Is Not Specified, Show The Window
          IF _HMG_aFormNoShow [ i ] == .F.
             ShowWindow( _HMG_aFormHandles [ i ] )
          ENDIF
@@ -1556,9 +1944,7 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
 
       NEXT
 
-      * If Specified, Execute Show Method For Visible Modal
-      * If Not, Process Focus For Last Window In The List
-
+      // Set focus and visible status for active forms
       IF VisibleModalCount == 1
          _ShowWindow ( VisibleModalName )
       ELSE
@@ -1591,7 +1977,6 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
 
          IF _HMG_aFormType [ x ] == 'P' .AND. _HMG_aFormParentHandle [ x ] == _HMG_aFormHandles [ i ]
 
-            * If NOSHOW Clause Is Not Specified, Show The Panel Window
             IF _HMG_aFormNoShow [ x ] == .F.
                _ShowWindow ( _HMG_aFormNames [ x ] )
             ENDIF
@@ -1608,13 +1993,12 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
 
       NEXT x
 #endif
-      // JP MDI Background
+      // Apply background painting for MDI client parent handles
       IF _HMG_BeginWindowMDIActive
          IF _HMG_aFormBkColor [ i ] [ 1 ] != -1
             SetWindowBackground( _HMG_MainClientMDIHandle, PaintBkGnd( _HMG_MainClientMDIHandle, _HMG_aFormBkColor [ i ] ) )
          ENDIF
       ENDIF
-      // JP end
 
       IF _HMG_aFormType [ i ] == "M"
 
@@ -1626,7 +2010,6 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
 
       ELSE
 
-         * Non Modal Check
          IF _HMG_IsModalActive .AND. lNoWait == .F.
             MsgMiniGUIError( "Non Modal Window " + Formname + " can't be activated when a Modal window is active." )
          ENDIF
@@ -1648,7 +2031,7 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
    ENDIF
 
    IF lNoWait == .F.
-      * Start The Message Loop
+      // Launch standard Windows event message dispatch loop
       DO MESSAGE LOOP
    ENDIF
 
@@ -1662,22 +2045,30 @@ FUNCTION _ActivateWindow ( aForm, lNoWait, lDebugger, bInit )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _ActivateAllWindows
+ * Purpose: Activates all defined application windows at startup.
+ *
+ * Parameters:
+ *   bInit [B] - Optional initial block parameter.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Activates all defined non-modal child forms along with the main form.
+ */
 FUNCTION _ActivateAllWindows ( bInit )
-*-----------------------------------------------------------------------------*
    LOCAL aForm := {}
    LOCAL MainName := ''
    LOCAL FormName
    LOCAL i
 
-   * If Already Exists Activated Windows When Abort Command
    IF AScan ( _HMG_aFormActive, .T. ) > 0
       MsgMiniGuiError( "ACTIVATE WINDOW ALL: this command should be used at application startup only." )
    ENDIF
 
-   * Force NoShow And NoAutoRelease Styles FOR Non Main Windows Excepting SplitChild and Panel
-   * ( Force AutoRelease And Visible For Main )
-
+   // Configure NoShow/AutoRelease flags across forms
    FOR EACH FormName IN _HMG_aFormNames
 
       i := hb_enumindex( FormName )
@@ -1702,7 +2093,6 @@ FUNCTION _ActivateAllWindows ( bInit )
 
    NEXT
 
-   * Check For Error And Call Activate Window Command
    IF Empty ( MainName )
       MsgMiniGuiError( "ACTIVATE WINDOW ALL: Main Window is not defined." )
    ELSEIF Len ( aForm ) == 0
@@ -1715,18 +2105,30 @@ FUNCTION _ActivateAllWindows ( bInit )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _RefreshDataControls
+ * Purpose: Repaints and syncs data-bound controls (Browse, Grid, Combo) on form activation.
+ *
+ * Parameters:
+ *   i [N] - Form index in global structures.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Triggers control value/painting updates and invalidates custom paint regions.
+ */
 PROCEDURE _RefreshDataControls ( i )
-*-----------------------------------------------------------------------------*
    LOCAL ControlIndex
    LOCAL SplitIndex
    LOCAL v
 
    IF ( Len ( _HMG_aFormGraphTasks [ i ] ) > 0 .OR. ;
       ISBLOCK( _HMG_aFormPaintProcedure [ i ] ) ) .AND. _HMG_ProgrammaticChange
-      InvalidateRect( _HMG_aFormHandles [ i ], 0 )  // GF 07/11/2012
+      InvalidateRect( _HMG_aFormHandles [ i ], 0 )  // Trigger repaint
    ENDIF
 
+   // Refresh data-bound controls registered in the form browse list
    FOR EACH ControlIndex IN _HMG_aFormBrowseList [ i ]
 
       v := _HMG_aControlValue [ControlIndex]
@@ -1740,6 +2142,7 @@ PROCEDURE _RefreshDataControls ( i )
 
    NEXT
 
+   // Refresh data controls inside child split panels
    IF Len ( _HMG_aFormSplitChildList [ i ] ) > 0
 
       FOR EACH SplitIndex IN _HMG_aFormSplitChildList [ i ]
@@ -1761,9 +2164,20 @@ PROCEDURE _RefreshDataControls ( i )
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetActivationFlag
+ * Purpose: Sets window active flags and enables drop files / auto-keyboard behavior.
+ *
+ * Parameters:
+ *   i [N] - Form index.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Modifies `_HMG_aFormActive`, registers drag-and-drop targets via DragAcceptFiles.
+ */
 PROCEDURE _SetActivationFlag ( i )
-*-----------------------------------------------------------------------------*
    LOCAL FormName
    LOCAL NoAutoReleaseFound := .F.
 
@@ -1773,6 +2187,7 @@ PROCEDURE _SetActivationFlag ( i )
       AEval ( _HMG_aFormSplitChildList [i], {|x| _HMG_aFormActive [x] := .T. } )
    ENDIF
 
+   // Register window as a file drop target if DropProcedure block is defined
    IF ISBLOCK ( _HMG_aFormDropProcedure [i] )
       DragAcceptFiles ( _HMG_aFormHandles [i], .T. )
    ENDIF
@@ -1807,9 +2222,20 @@ PROCEDURE _SetActivationFlag ( i )
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _ProcessInitProcedure
+ * Purpose: Executes the user ON INIT callback code block and handles window auto-adjustment.
+ *
+ * Parameters:
+ *   i [N] - Form index.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Evaluates `_HMG_aFormInitProcedure[i]` callback block and performs layout auto-adjustments.
+ */
 PROCEDURE _ProcessInitProcedure ( i )
-*-----------------------------------------------------------------------------*
 
    IF ISBLOCK ( _HMG_aFormInitProcedure [ i ] )
 
@@ -1842,9 +2268,20 @@ PROCEDURE _ProcessInitProcedure ( i )
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetFocusedSplitChild
+ * Purpose: Restores input focus to the active split child band if focused.
+ *
+ * Parameters:
+ *   i [N] - Form index.
+ *
+ * Return:
+ *   [L] - .T. if a split child window received focus, otherwise .F.
+ *
+ * Side Effects:
+ *   Calls SetFocus API on child window handle.
+ */
 FUNCTION _SetFocusedSplitChild ( i )
-*-----------------------------------------------------------------------------*
    LOCAL SplitFocusFlag := .F.
    LOCAL nIndex
 
@@ -1863,9 +2300,20 @@ FUNCTION _SetFocusedSplitChild ( i )
 
 RETURN SplitFocusFlag
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetActivationFocus
+ * Purpose: Automatically selects and focuses the default control when activating a window.
+ *
+ * Parameters:
+ *   i [N] - Form index.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Changes Win32 keyboard input focus to the target control handle.
+ */
 PROCEDURE _SetActivationFocus ( i )
-*-----------------------------------------------------------------------------*
    LOCAL FocusDefined := .F.
    LOCAL Sp := GetFocus()
    LOCAL hControl
@@ -1874,6 +2322,7 @@ PROCEDURE _SetActivationFocus ( i )
 
    hParent := _HMG_aFormHandles [i]
 
+   // Prioritize double-click ownerdraw buttons
    FOR EACH hControl IN _HMG_aControlHandles
 
       x := hb_enumindex( hControl )
@@ -1892,11 +2341,12 @@ PROCEDURE _SetActivationFocus ( i )
 
    IF FocusDefined == .F.
 
+      // Search for default push buttons or current focus match
       FOR EACH hControl IN _HMG_aControlHandles
 
          x := hb_enumindex( hControl )
 
-         IF _HMG_aControlParentHandles [x] == hParent .AND. _HMG_aControlType [x] != "HOTKEY" // BK 25-Apr-2012
+         IF _HMG_aControlParentHandles [x] == hParent .AND. _HMG_aControlType [x] != "HOTKEY" // Skip hotkeys
 
             IF ISNUMBER ( hControl )
                IF _HMG_aControlType [x] == 'BUTTON' .AND. IsWindowHasStyle ( hControl, BS_DEFPUSHBUTTON )
@@ -1925,12 +2375,13 @@ PROCEDURE _SetActivationFocus ( i )
 
    IF FocusDefined == .F.
 
+      // Fallback to next dialog tab stop item
       IF ( x := AScan ( _HMG_aControlHandles, GetNextDlgTabItem ( hParent, 0, .F. ) ) ) > 0 .OR. ;
          ( x := AScan ( _HMG_aControlHandles, { |x| iif ( ISARRAY( x ), x [1] == GetNextDlgTabItem ( hParent, 0, .F. ), .F. ) } ) ) > 0
          _SetFocus ( , , x )
       ENDIF
 
-      IF _HMG_BeginWindowMDIActive  // BK 25-Apr-2012
+      IF _HMG_BeginWindowMDIActive
          _HMG_aFormFocusedControl [i] := GetFocus()
       ENDIF
 
@@ -1938,9 +2389,20 @@ PROCEDURE _SetActivationFocus ( i )
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _GenActivateId
+ * Purpose: Generates a unique activation ID token for window activation tracking.
+ *
+ * Parameters:
+ *   nForm [N] - Form count or index context.
+ *
+ * Return:
+ *   [N] - Integer timestamp-derived activation identifier.
+ *
+ * Side Effects:
+ *   Creates global dynamic variable entries tracking the activation session.
+ */
 STATIC FUNCTION _GenActivateId ( nForm )
-*-----------------------------------------------------------------------------*
    LOCAL TmpStr
    LOCAL TmpId
 
@@ -1964,17 +2426,27 @@ STATIC FUNCTION _GenActivateId ( nForm )
 
 RETURN( TmpId )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _hmg_OnHideFocusManagement
+ * Purpose: Re-enables parent or non-modal windows when a window is hidden or closed.
+ *
+ * Parameters:
+ *   i [N] - Form index being hidden.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Enables Win32 window input states and switches active window context.
+ */
 PROCEDURE _hmg_OnHideFocusManagement ( i )
-*-----------------------------------------------------------------------------*
    LOCAL bEnableWindow := {|y, z| iif( _HMG_aFormDeleted [ z ] == .F., ;
       EnableWindow ( _HMG_aFormhandles [ z ] ), ), HB_SYMBOL_UNUSED( y ) }
    LOCAL x
 
    IF _HMG_aFormParentHandle [ i ] == 0
 
-      * Non Modal
-
+      // Non-modal window focus restore
       IF _HMG_IsModalActive == .F.
 
          AEval( _HMG_aFormHandles, bEnableWindow )
@@ -1983,13 +2455,10 @@ PROCEDURE _hmg_OnHideFocusManagement ( i )
 
    ELSE
 
-      * Modal
-
+      // Modal parent window focus restore
       IF ( x := AScan ( _HMG_aFormHandles, _HMG_aFormParenthandle [ i ] ) ) > 0
 
          IF _HMG_aFormType [ x ] == "M"
-
-            * Modal Parent
 
             _HMG_IsModalActive := .T.
             _HMG_ActiveModalHandle := _HMG_aFormParenthandle [ i ]
@@ -1999,8 +2468,6 @@ PROCEDURE _hmg_OnHideFocusManagement ( i )
             SwitchToThisWindow ( _HMG_aFormParenthandle [ i ] )
 
          ELSE
-
-            * Non Modal Parent
 
             _HMG_IsModalActive := .F.
             _HMG_ActiveModalHandle := 0
@@ -2012,8 +2479,6 @@ PROCEDURE _hmg_OnHideFocusManagement ( i )
          ENDIF
 
       ELSE
-
-         * Missing Parent
 
          _HMG_IsModalActive := .F.
          _hmg_ActiveModalHandle := 0
@@ -2030,16 +2495,31 @@ PROCEDURE _hmg_OnHideFocusManagement ( i )
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _DoControlEventProcedure
+ * Purpose: Safely executes a code block event handler for a GUI control.
+ *
+ * Parameters:
+ *   bBlock     [B] - Code block to execute.
+ *   i          [N] - Control index in global arrays.
+ *   cEventType [C] - Name of event type.
+ *   nParam     [U] - Optional event parameter 1.
+ *   nParam2    [U] - Optional event parameter 2.
+ *
+ * Return:
+ *   [L] - Event handler return result or default .T. (.F. if skipped).
+ *
+ * Side Effects:
+ *   Pushes and pops global event execution context (`_HMG_ThisControlName`, etc.).
+ */
 FUNCTION _DoControlEventProcedure ( bBlock, i, cEventType, nParam, nParam2 )
-*-----------------------------------------------------------------------------*
    LOCAL lRetVal
 
 #ifdef _HMG_COMPAT_
-   IF _HMG_aControlType [ i ] != "HOTKEY"  // Claudio Soto, November 2016
+   IF _HMG_aControlType [ i ] != "HOTKEY"  // Record last active control index
       _HMG_LastActiveControlIndex := i
    ENDIF
-   IF Len( _HMG_StopControlEventProcedure ) >= i .AND. _HMG_StopControlEventProcedure [ i ] == .T.  // Claudio Soto, April 2013
+   IF Len( _HMG_StopControlEventProcedure ) >= i .AND. _HMG_StopControlEventProcedure [ i ] == .T.  // Skip stopped events
       RETURN .F.
    ENDIF
 #endif
@@ -2066,16 +2546,29 @@ FUNCTION _DoControlEventProcedure ( bBlock, i, cEventType, nParam, nParam2 )
 
 RETURN lRetVal
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _DoWindowEventProcedure
+ * Purpose: Safely executes a code block event handler for a window.
+ *
+ * Parameters:
+ *   bBlock     [B] - Code block to evaluate.
+ *   i          [N] - Form index.
+ *   cEventType [C] - Window event descriptor string.
+ *
+ * Return:
+ *   [L] - Result of code block evaluation, or .F. if invalid/blocked.
+ *
+ * Side Effects:
+ *   Pushes and pops form event execution context.
+ */
 FUNCTION _DoWindowEventProcedure ( bBlock, i, cEventType )
-*-----------------------------------------------------------------------------*
    LOCAL lRetVal := .F.
 
 #ifdef _HMG_COMPAT_
-   IF cEventType != "TASKBAR"  // Claudio Soto, November 2016
+   IF cEventType != "TASKBAR"  // Track last active form
       _HMG_LastActiveFormIndex := i
    ENDIF
-   IF Len( _HMG_StopWindowEventProcedure ) >= i .AND. _HMG_StopWindowEventProcedure [ i ] == .T.  // Claudio Soto, April 2013
+   IF Len( _HMG_StopWindowEventProcedure ) >= i .AND. _HMG_StopWindowEventProcedure [ i ] == .T.  // Skip if blocked
       RETURN .F.
    ENDIF
 #endif
@@ -2098,9 +2591,20 @@ FUNCTION _DoWindowEventProcedure ( bBlock, i, cEventType )
 
 RETURN lRetVal
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: IsThemed
+ * Purpose: Determines if Windows visual styles/themes (comctl32 v6+) are active.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   [L] - .T. if visual styles are active, .F. otherwise.
+ *
+ * Side Effects:
+ *   Queries comctl32.dll version and theme status.
+ */
 FUNCTION IsThemed ()
-*-----------------------------------------------------------------------------*
    LOCAL aRetVal := GetDllVersion( "comctl32.dll" )
 
    IF IsXPThemeActive () .AND. ;
@@ -2110,9 +2614,20 @@ FUNCTION IsThemed ()
 
 RETURN .F.
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: IsAppXPThemed
+ * Purpose: Checks whether the current application process is manifest-themed.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   [L] - .T. if application is themed via UxTheme library.
+ *
+ * Side Effects:
+ *   Calls Windows UxTheme API functions.
+ */
 FUNCTION IsAppXPThemed ()
-*-----------------------------------------------------------------------------*
    LOCAL uResult := .F.
 
    IF _HMG_IsXPorLater
@@ -2123,9 +2638,20 @@ FUNCTION IsAppXPThemed ()
 
 RETURN uResult
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: IsXPThemeActive
+ * Purpose: Checks if Windows theme engine is globally active in the operating system.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   [L] - .T. if system theme service is active.
+ *
+ * Side Effects:
+ *   Calls Windows UxTheme IsThemeActive API.
+ */
 FUNCTION IsXPThemeActive ()
-*-----------------------------------------------------------------------------*
    LOCAL uResult := .F.
 
    IF _HMG_IsXPorLater
@@ -2136,9 +2662,21 @@ FUNCTION IsXPThemeActive ()
 
 RETURN uResult
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: VirtualChildControlFocusProcess
+ * Purpose: Scrolls a virtual window canvas automatically when a child control gains focus.
+ *
+ * Parameters:
+ *   nControlHandle [N] - Control HWND.
+ *   nWindowHandle  [N] - Parent window HWND.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Adjusts window scrollbar positions via `_HMG_SETVSCROLLVALUE` and `_HMG_SETHSCROLLVALUE`.
+ */
 PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
-*-----------------------------------------------------------------------------*
    LOCAL nWindowVirtualWidth
    LOCAL nWindowVirtualHeight
    LOCAL nWindowHeight  := 0
@@ -2162,8 +2700,7 @@ PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
       RETURN
    ENDIF
 
-   * Get Window Width / Height / Virtual Width / Virtual Height
-
+   // Retrieve dimensions for virtual form
    FOR x := 1 TO Len ( _HMG_aFormHandles )
 
       IF _HMG_aFormHandles [ x ] == nWindowHandle
@@ -2186,8 +2723,7 @@ PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
 
    NEXT x
 
-   * Get Control Row / Col / Width / Height
-
+   // Retrieve control position and dimensions
    FOR x := 1 TO Len ( _HMG_aControlHandles )
 
       IF ISNUMBER ( nControlHandle )
@@ -2222,17 +2758,11 @@ PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
 
    NEXT x
 
-   * Get hScrollBox Position / vScrollBox Position
-
    nHorizontalScrollBoxPos := GetScrollPos ( nWindowHandle, SB_HORZ )
    nVerticalScrollBoxPos := GetScrollPos ( nWindowHandle, SB_VERT )
 
-   * Get hScrollBar Maximun Range / vScrollBar Maximun Range
-
    nHorizontalScrollBarRangeMax := GetScrollRangeMax( nWindowHandle, SB_HORZ )
    nVerticalScrollBarRangeMax := GetScrollRangeMax( nWindowHandle, SB_VERT )
-
-   * Calculate Current Visible Area
 
    nVisibleAreaFromRow := nVerticalScrollBoxPos
    nVisibleAreaFromCol := nHorizontalScrollBoxPos
@@ -2240,11 +2770,7 @@ PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
    nVisibleAreaToRow := nVisibleAreaFromRow + nWindowHeight - 50
    nVisibleAreaToCol := nVisibleAreaFromCol + nWindowWidth - 10
 
-   * Determine If Control Getting the Focus is out of Visible
-   * Area. If So, scroll The Window.
-
-   * Control is too Low To be Visible
-
+   // Adjust vertical scrollbar position if focused control is out of visible region
    IF nControlRow + nControlHeight > nVisibleAreaToRow
 
       nNewScrollBarPos := nControlRow + nControlHeight - nWindowHeight + 100
@@ -2256,8 +2782,6 @@ PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
       _HMG_SETVSCROLLVALUE( nWindowHandle, nNewScrollBarPos )
 
    ELSE
-
-      * Control is too High To be Visible
 
       IF nControlRow + nControlHeight < nVisibleAreaFromRow
 
@@ -2273,8 +2797,7 @@ PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
 
    ENDIF
 
-   * Control Is Too Right To Be Visible
-
+   // Adjust horizontal scrollbar position if focused control is out of visible region
    IF nControlCol + nControlWidth > nVisibleAreaToCol
 
       nNewScrollBarPos := nControlCol + nControlWidth - nWindowWidth + 100
@@ -2286,8 +2809,6 @@ PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
       _HMG_SETHSCROLLVALUE( nWindowHandle, nNewScrollBarPos )
 
    ELSE
-
-      * Control Is Too Left To Be Visible
 
       IF nControlCol + nControlWidth < nVisibleAreaFromCol
 
@@ -2305,9 +2826,20 @@ PROCEDURE VirtualChildControlFocusProcess ( nControlHandle, nWindowHandle )
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _IsWindowActive
+ * Purpose: Determines whether a named window is currently active and rendered.
+ *
+ * Parameters:
+ *   FormName [C] - Window identifier string.
+ *
+ * Return:
+ *   [L] - .T. if window is active, .F. otherwise.
+ *
+ * Side Effects:
+ *   Reads `_HMG_aFormActive` global array.
+ */
 FUNCTION _IsWindowActive ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL mVar
    LOCAL i
 
@@ -2335,9 +2867,20 @@ FUNCTION _IsWindowActive ( FormName )
 
 RETURN .F.
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _IsWindowDefined
+ * Purpose: Checks whether a window with the specified name is defined in memory.
+ *
+ * Parameters:
+ *   FormName [C] - Window name.
+ *
+ * Return:
+ *   [L] - .T. if defined and not deleted, .F. otherwise.
+ *
+ * Side Effects:
+ *   Reads `_HMG_aFormDeleted` global array.
+ */
 FUNCTION _IsWindowDefined ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL mVar
    LOCAL i
 
@@ -2365,9 +2908,20 @@ FUNCTION _IsWindowDefined ( FormName )
 
 RETURN .F.
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: GetWindowType
+ * Purpose: Retrieves the single-character window type code ('A', 'C', 'M', 'P', 'X', 'S').
+ *
+ * Parameters:
+ *   FormName [C] - Target form name.
+ *
+ * Return:
+ *   [C] - Type code string, or empty string if window not found.
+ *
+ * Side Effects:
+ *   Reads `_HMG_aFormType`.
+ */
 FUNCTION GetWindowType ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL i
 
    IF ( i := GetFormIndex ( FormName ) ) == 0
@@ -2376,9 +2930,20 @@ FUNCTION GetWindowType ( FormName )
 
 RETURN ( _HMG_aFormType [ i ] )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: GetFormName
+ * Purpose: Returns the canonical name of a form, handling active MDI windows automatically.
+ *
+ * Parameters:
+ *   FormName [C] - Base form name candidate.
+ *
+ * Return:
+ *   [C] - Window string name.
+ *
+ * Side Effects:
+ *   Queries active MDI child dynamic properties if MDI mode is active.
+ */
 FUNCTION GetFormName ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL i
 
    IF _HMG_BeginWindowMDIActive
@@ -2397,9 +2962,20 @@ FUNCTION GetFormName ( FormName )
 
 RETURN ( _HMG_aFormNames [ i ] )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: GetFormToolTipHandle
+ * Purpose: Retrieves the HWND handle of the tooltip control assigned to a window.
+ *
+ * Parameters:
+ *   FormName [C] - Window string name.
+ *
+ * Return:
+ *   [N] - HWND tooltip handle.
+ *
+ * Side Effects:
+ *   Raises runtime MiniGUI error if target form is undefined.
+ */
 FUNCTION GetFormToolTipHandle ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL i
 
    IF _HMG_BeginWindowMDIActive
@@ -2412,9 +2988,20 @@ FUNCTION GetFormToolTipHandle ( FormName )
 
 RETURN ( _HMG_aFormToolTipHandle [ i ] )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: GetFormHandle
+ * Purpose: Returns the native Win32 window handle (HWND) for a named form.
+ *
+ * Parameters:
+ *   FormName [C] - Target form name.
+ *
+ * Return:
+ *   [N] - Native Windows handle (HWND).
+ *
+ * Side Effects:
+ *   Raises error if form is not found.
+ */
 FUNCTION GetFormHandle ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL i
 
    IF ( i := GetFormIndex ( FormName ) ) == 0
@@ -2423,9 +3010,20 @@ FUNCTION GetFormHandle ( FormName )
 
 RETURN ( _HMG_aFormHandles [ i ] )
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: ReleaseAllWindows
+ * Purpose: Releases all GUI windows, controls, fonts, and resources, and terminates application.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Destroys all Win32 GUI handles, executes release handlers, closes databases, shuts down GDI+, and exits process.
+ */
 FUNCTION ReleaseAllWindows ()
-*-----------------------------------------------------------------------------*
    LOCAL FormHandle, hMenu, hIcon
    LOCAL ControlType
    LOCAL i
@@ -2434,6 +3032,7 @@ FUNCTION ReleaseAllWindows ()
       MsgMiniGuiError ( "Release a window in its own ON RELEASE procedure or release the Main Window in any ON RELEASE procedure is not allowed." )
    ENDIF
 
+   // Execute release handlers and clean form resource handles
    FOR EACH FormHandle IN _HMG_aFormHandles
 
       i := hb_enumindex ( FormHandle )
@@ -2474,15 +3073,16 @@ FUNCTION ReleaseAllWindows ()
    NEXT
 
    IF IsExtendedMenuStyleActive() .AND. ! Empty ( _HMG_MainHandle ) .AND. IsMenu ( hMenu := GetMenu ( _HMG_MainHandle ) )
-      _OnDestroyMenu ( hMenu )  // Release OwnerDraw Main Menu
+      _OnDestroyMenu ( hMenu )  // Release ownerdraw main menu structures
    ENDIF
 
    _HMG_DialogBoxProperty ( , , , , .F., @hIcon )
 
-   IF hIcon != NIL .AND. IsHIcon( hIcon )  // Release DialogBox Icon
+   IF hIcon != NIL .AND. IsHIcon( hIcon )
       DestroyIcon ( hIcon )
    ENDIF
 
+   // Free all active child controls
    FOR EACH ControlType IN _HMG_aControlType
 
       i := hb_enumindex ( ControlType )
@@ -2514,6 +3114,7 @@ FUNCTION ReleaseAllWindows ()
 
    NEXT
 
+   // Release subsystems and libraries
    OleDataRelease()
 
    UnloadRichEditLib()
@@ -2545,15 +3146,26 @@ FUNCTION ReleaseAllWindows ()
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _ReleaseWindow
+ * Purpose: Posts a close message to release and destroy a specific window.
+ *
+ * Parameters:
+ *   FormName [C] - Name of window to close.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Sends WM_CLOSE message to target window. Releasing Main Window delegates to ReleaseAllWindows().
+ */
 FUNCTION _ReleaseWindow ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL FormHandle
    LOCAL b
    LOCAL i
 
    b := _HMG_InteractiveClose
-   _HMG_InteractiveClose := 1  // Interactive Close event is disabled
+   _HMG_InteractiveClose := 1  // Temporarily disable interactive close handlers
 
    IF ! _IsWindowDefined ( Formname )
       MsgMiniGuiError( "Window: " + FormName + " is not defined." )
@@ -2568,8 +3180,6 @@ FUNCTION _ReleaseWindow ( FormName )
          MsgMiniGuiError( "Release a window in its own ON RELEASE procedure or release the Main Window in any ON RELEASE procedure is not allowed." )
       ENDIF
    ENDIF
-
-   * If the window to release is the main application window, RELEASE ALL WINDOWS command will be executed
 
    IF GetWindowType ( FormName ) == 'A'
 
@@ -2591,8 +3201,6 @@ FUNCTION _ReleaseWindow ( FormName )
 
    FormHandle := _HMG_aFormHandles [ i ]
 
-   * Release Window
-
    IF _HMG_aFormType [ i ] == 'M' .AND. _HMG_ActiveModalHandle <> FormHandle
 
       EnableWindow ( FormHandle )
@@ -2612,17 +3220,27 @@ FUNCTION _ReleaseWindow ( FormName )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _ShowWindow
+ * Purpose: Renders a window visible on screen and updates modal hierarchy if necessary.
+ *
+ * Parameters:
+ *   FormName         [C] - Target form name string.
+ *   lProcessMessages [L] - Processes pending Windows message queue via DO EVENTS if .T.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Invokes ShowWindow API, disables non-child windows if modal, and forces event processing.
+ */
 FUNCTION _ShowWindow ( FormName, lProcessMessages )
-*-----------------------------------------------------------------------------*
    LOCAL ActiveWindowHandle
    LOCAL i
 
    i := GetFormIndex ( FormName )
 
    IF _HMG_aFormType [ i ] == "M"
-
-      * Find Parent
 
       IF _HMG_IsModalActive
 
@@ -2640,6 +3258,7 @@ FUNCTION _ShowWindow ( FormName, lProcessMessages )
 
       ENDIF
 
+      // Disable non-modal parent windows when modal form is activated
       AEval ( _HMG_aFormHandles, { |y, x| iif( x <> i .AND. ! _HMG_aFormType [ x ] $ 'XP' .AND. ;
          _HMG_aFormParentHandle [ x ] != _HMG_aFormHandles [ i ], DisableWindow ( _HMG_aFormHandles [ x ] ), ), HB_SYMBOL_UNUSED( y ) } )
 
@@ -2671,16 +3290,26 @@ FUNCTION _ShowWindow ( FormName, lProcessMessages )
 
    IF hb_defaultValue( lProcessMessages, .T. )
 
-      * Do Process Messages
       DO EVENTS
 
    ENDIF
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _HideWindow
+ * Purpose: Makes a window invisible without destroying its handle.
+ *
+ * Parameters:
+ *   FormName [C] - Window name identifier.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Calls Win32 HideWindow API and triggers focus management via `_hmg_OnHideFocusManagement`.
+ */
 FUNCTION _HideWindow ( FormName )
-*-----------------------------------------------------------------------------*
    LOCAL FormHandle
    LOCAL i
 
@@ -2712,18 +3341,41 @@ FUNCTION _HideWindow ( FormName )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _CenterWindow
+ * Purpose: Centers a specified window on screen or relative to its parent.
+ *
+ * Parameters:
+ *   FormName [C] - Target form name.
+ *   lParent  [L] - Centers relative to parent window if .T., else screen centered.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Moves the window rect using C_Center API wrapper.
+ */
 FUNCTION _CenterWindow ( FormName, lParent )
-*-----------------------------------------------------------------------------*
    LOCAL FormHandle := GetFormHandle( FormName )
 
    C_Center( FormHandle, iif( FormHandle == _HMG_MainHandle, .F., hb_defaultValue( lParent, .F. ) ) )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _SetCenterWindowStyle
+ * Purpose: Gets/sets the global window centering style flag.
+ *
+ * Parameters:
+ *   lNewStyle [L] - (Optional) New logical centering style value.
+ *
+ * Return:
+ *   [L] - Previous centering style value.
+ *
+ * Side Effects:
+ *   Updates global internal setting variable `_HMG_SetCenterWindowStyle`.
+ */
 FUNCTION _SetCenterWindowStyle ( lNewStyle )
-*-----------------------------------------------------------------------------*
    LOCAL cVarName := "_HMG_" + SubStr( ProcName(), 5 )
    LOCAL lOldStyle := _AddNewGlobal( cVarName, .F. )
 
@@ -2733,9 +3385,20 @@ FUNCTION _SetCenterWindowStyle ( lNewStyle )
 
 RETURN lOldStyle
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: SuppressKeyAndMouseEvents
+ * Purpose: Flushes keyboard and mouse input buffers during a brief waiting period.
+ *
+ * Parameters:
+ *   nWait [N] - Waiting timeout period in milliseconds (default 20).
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Clears GUI input queues and dispatches pending message events.
+ */
 FUNCTION SuppressKeyAndMouseEvents ( nWait )
-*-----------------------------------------------------------------------------*
 
       REPEAT
          HMG_KeyboardClearBuffer()
@@ -2745,9 +3408,20 @@ FUNCTION SuppressKeyAndMouseEvents ( nWait )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: GetParentFormName
+ * Purpose: Resolves parent window name from a control's index.
+ *
+ * Parameters:
+ *   nControlIndex [N] - Control index in global array.
+ *
+ * Return:
+ *   [C] - Name of parent window, or empty string if not found.
+ *
+ * Side Effects:
+ *   Searches `_HMG_aFormHandles`.
+ */
 FUNCTION GetParentFormName ( nControlIndex )
-*-----------------------------------------------------------------------------*
    LOCAL i := AScan( _HMG_aFormHandles, _HMG_aControlParentHandles [ nControlIndex ] )
 
 RETURN iif( i > 0, _HMG_aFormNames [ i ], "" )
@@ -2755,9 +3429,21 @@ RETURN iif( i > 0, _HMG_aFormNames [ i ], "" )
 #ifdef __XHARBOUR__
    #xtranslate hb_ValToExp( [<x,...>] ) => ValToPrgExp( <x> )
 #endif
-*-----------------------------------------------------------------------------*
+
+/*
+ * Routine: MsgDebug
+ * Purpose: Displays runtime debug diagnostic information for supplied parameters.
+ *
+ * Parameters:
+ *   ... [Usual] - Variable list of expressions to inspect.
+ *
+ * Return:
+ *   [C] - Formatted debug output message string.
+ *
+ * Side Effects:
+ *   Pops up an AlertInfo/MsgInfo dialog displaying source execution line context.
+ */
 FUNCTION MsgDebug ( ... )
-*-----------------------------------------------------------------------------*
    LOCAL nCnt := PCount()
    LOCAL cMsg, xVal
    LOCAL cFormName, hWnd
@@ -2765,6 +3451,7 @@ FUNCTION MsgDebug ( ... )
 
    cMsg := "Called from: " + ProcName( 1 ) + "(" + hb_ntos( ProcLine( 1 ) ) + ") --> " + ProcFile( 1 ) + CRLF + CRLF
 
+   // Formatter loop converting values and object states into text
    FOR i := 1 TO nCnt
       xVal := PValue( i )
       IF ISOBJECT( xVal )
@@ -2802,9 +3489,20 @@ FUNCTION MsgDebug ( ... )
 
 RETURN cMsg
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _InitSplashWindow
+ * Purpose: Instantiates internal hidden splash screen window structure.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Creates window object `_HMG_SPLASHWINDOW`.
+ */
 PROCEDURE _InitSplashWindow ()
-*-----------------------------------------------------------------------------*
 
    DEFINE WINDOW _HMG_SPLASHWINDOW ;
       CHILD NOSHOW NOAUTORELEASE NOSIZE NOSYSMENU NOCAPTION
@@ -2815,9 +3513,23 @@ PROCEDURE _InitSplashWindow ()
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _ShowSplashWindow
+ * Purpose: Renders and displays a splash screen image window for a specified duration.
+ *
+ * Parameters:
+ *   cImage     [C] - Image file path or resource name.
+ *   nDelay     [N] - Delay time in seconds.
+ *   bOnInit    [B] - Action evaluated upon splash display.
+ *   bOnRelease [B] - Action evaluated upon splash hide.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Displays topmost modal splash window and draws border graphics on window DC.
+ */
 PROCEDURE _ShowSplashWindow ( cImage, nDelay, bOnInit, bOnRelease )
-*-----------------------------------------------------------------------------*
    LOCAL aBmpSize := BmpSize( cImage )
    LOCAL width    := aBmpSize [1]
    LOCAL height   := aBmpSize [2]
@@ -2834,6 +3546,7 @@ PROCEDURE _ShowSplashWindow ( cImage, nDelay, bOnInit, bOnRelease )
 
       CENTER WINDOW _HMG_SPLASHWINDOW
 
+      // Paint border lines around splash frame
       DRAW LINE IN WINDOW _HMG_SPLASHWINDOW ;
          AT 0, 0 TO 0, Width ;
          PENCOLOR BLACK ;
@@ -2876,10 +3589,22 @@ PROCEDURE _ShowSplashWindow ( cImage, nDelay, bOnInit, bOnRelease )
 
 RETURN
 
-#ifdef _HMG_COMPAT_  // Dr. Claudio Soto, April 2013
-*-----------------------------------------------------------------------------*
+#ifdef _HMG_COMPAT_
+/*
+ * Routine: StopWindowEventProcedure
+ * Purpose: Enables or disables window event procedures for a form.
+ *
+ * Parameters:
+ *   cFormName [C] - Name of form.
+ *   lStop     [L] - Flag setting whether window events are blocked (.T.) or allowed (.F.).
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Updates `_HMG_StopWindowEventProcedure` array element.
+ */
 FUNCTION StopWindowEventProcedure ( cFormName, lStop )
-*-----------------------------------------------------------------------------*
    LOCAL i
 
    IF ( i := GetFormIndex ( cFormName ) ) > 0
@@ -2888,9 +3613,22 @@ FUNCTION StopWindowEventProcedure ( cFormName, lStop )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: StopControlEventProcedure
+ * Purpose: Enables or disables event procedures for a specific control.
+ *
+ * Parameters:
+ *   cControlName [C] - Control identifier.
+ *   cFormName    [C] - Host form name.
+ *   lStop        [L] - Flag setting whether control events are blocked (.T.).
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Updates `_HMG_StopControlEventProcedure` entry.
+ */
 FUNCTION StopControlEventProcedure ( cControlName, cFormName, lStop )
-*-----------------------------------------------------------------------------*
    LOCAL i
 
    IF ( i := GetControlIndex ( cControlName, cFormName ) ) > 0
@@ -2899,18 +3637,40 @@ FUNCTION StopControlEventProcedure ( cControlName, cFormName, lStop )
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: GetLastActiveFormIndex
+ * Purpose: Returns the index of the form that last executed an event procedure.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   [N] - 1-based form index, or 0 if deleted.
+ *
+ * Side Effects:
+ *   Checks `_HMG_LastActiveFormIndex`.
+ */
 FUNCTION GetLastActiveFormIndex ()
-*-----------------------------------------------------------------------------*
    IF _HMG_LastActiveFormIndex > 0 .AND. _HMG_aFormDeleted[ _HMG_LastActiveFormIndex ] == .T.
       _HMG_LastActiveFormIndex := 0
    ENDIF
 
 RETURN _HMG_LastActiveFormIndex
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: GetLastActiveControlIndex
+ * Purpose: Returns the index of the control that last executed an event procedure.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   [N] - 1-based control index, or 0 if deleted.
+ *
+ * Side Effects:
+ *   Checks `_HMG_LastActiveControlIndex`.
+ */
 FUNCTION GetLastActiveControlIndex ()
-*-----------------------------------------------------------------------------*
    IF _HMG_LastActiveControlIndex > 0 .AND. _HMG_aControlDeleted[ _HMG_LastActiveControlIndex ] == .T.
       _HMG_LastActiveControlIndex := 0
    ENDIF
@@ -2919,9 +3679,26 @@ RETURN _HMG_LastActiveControlIndex
 
 #endif
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: WaitWindow
+ * Purpose: Displays a temporary borderless popup window with a wait/progress message.
+ *
+ * Parameters:
+ *   cMessage   [C|A] - Text message or array of string lines to display.
+ *   lNoWait    [L|B] - If .T., function returns immediately without blocking.
+ *   nWidth     [N]   - Explicit window width in pixels.
+ *   nSize      [N]   - Label font size.
+ *   cFont      [C]   - Label font family.
+ *   aFontColor [A]   - RGB font color array.
+ *   aBackColor [A]   - RGB background color array.
+ *
+ * Return:
+ *   [C] - Internal wait window name string ("_HMG_CHILDWAITWINDOW").
+ *
+ * Side Effects:
+ *   Defines, displays, and releases window `_HMG_CHILDWAITWINDOW`.
+ */
 FUNCTION WaitWindow ( cMessage, lNoWait, nWidth, nSize, cFont, aFontColor, aBackColor )
-*-----------------------------------------------------------------------------*
    LOCAL cFormName := "_HMG_CHILDWAITWINDOW"
    LOCAL lDefined := _IsWindowDefined( cFormName )
    LOCAL lIsModal
@@ -2991,6 +3768,7 @@ FUNCTION WaitWindow ( cMessage, lNoWait, nWidth, nSize, cFont, aFontColor, aBack
       hb_default( @lNoWait, .F. )
       hb_default( @cFont, _HMG_DefaultFontName )
 
+      // Normalize message text parameter into line array
       IF HB_ISCHAR( cMessage )
          IF CRLF $ cMessage
             cMessage := hb_ATokens( cMessage, CRLF )
@@ -3020,6 +3798,7 @@ FUNCTION WaitWindow ( cMessage, lNoWait, nWidth, nSize, cFont, aFontColor, aBack
 
          lIsModal := _HMG_IsModalActive
 
+         // Find longest message line for auto-sizing window
          nTmp := 1
          cTmp := cMessage[ nTmp ]
          FOR nI := 1 TO nK
@@ -3133,9 +3912,20 @@ FUNCTION WaitWindow ( cMessage, lNoWait, nWidth, nSize, cFont, aFontColor, aBack
 
 RETURN cFormName
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: EfeitoLabel
+ * Purpose: Timer procedure animating scrolling text inside WaitWindow.
+ *
+ * Parameters:
+ *   cTxt [C] - Message text to scroll.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Updates label property value in real time.
+ */
 STATIC PROCEDURE EfeitoLabel ( cTxt )
-*-----------------------------------------------------------------------------*
    LOCAL cFormName := ThisWindow.Name
    LOCAL nDescLen := GetTextWidth( , cDescEfeito, _HMG_aControlFontHandle[ GetControlIndex( "Message", cFormName ) ] )
    LOCAL nLblLen := GetProperty( cFormName, "Message", "Width" )
@@ -3163,9 +3953,25 @@ STATIC PROCEDURE EfeitoLabel ( cTxt )
 
 RETURN
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _HMG_DialogBoxProperty
+ * Purpose: Stores and retrieves static layout and icon properties for modal DialogBox instances.
+ *
+ * Parameters:
+ *   nRow    [@N] - Row position.
+ *   nCol    [@N] - Column position.
+ *   lCenter [@L] - Center flag.
+ *   Form    [@U] - Form handle or identifier.
+ *   lSet     [L] - Pass .T. to set properties, .F. to read back into parameters.
+ *   hIcon   [@N] - Dialog icon handle.
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Stores state array in static global variable space.
+ */
 FUNCTION _HMG_DialogBoxProperty ( nRow, nCol, lCenter, Form, lSet, hIcon )
-*-----------------------------------------------------------------------------*
    LOCAL cVarName := ProcName()
    LOCAL aDialogBoxPosSizeInfo
 
@@ -3193,15 +3999,26 @@ FUNCTION _HMG_DialogBoxProperty ( nRow, nCol, lCenter, Form, lSet, hIcon )
 RETURN NIL
 
 #ifdef _HMG_COMPAT_
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: _HMG_DialogBoxProcedure
+ * Purpose: Hooks Win32 standard dialog boxes (class #32770) to apply centering and custom icons.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return:
+ *   NIL
+ *
+ * Side Effects:
+ *   Sets dialog window position and icon via SetWindowPos and SetWindowHIcon.
+ */
 FUNCTION _HMG_DialogBoxProcedure()
-*-----------------------------------------------------------------------------*
    LOCAL hWnd := GetActiveWindow()
    LOCAL hWndParent, hIcon
    LOCAL nRow, nCol
    LOCAL lCenter
 
-   IF IsWindowHandle( hWnd ) .AND. GetClassName( hWnd ) == "#32770" // The class name for a dialog box
+   IF IsWindowHandle( hWnd ) .AND. GetClassName( hWnd ) == "#32770" // Win32 standard dialog box class name
 
       _HMG_DialogBoxProperty( @nRow, @nCol, @lCenter, @hWndParent, .F., @hIcon )
 
@@ -3247,9 +4064,21 @@ FUNCTION _HMG_DialogBoxProcedure()
 
 RETURN NIL
 
-*-----------------------------------------------------------------------------*
+/*
+ * Routine: EnumChildWindows
+ * Purpose: Enumerates all child window handles belonging to a parent window.
+ *
+ * Parameters:
+ *   hWnd [N] - Parent HWND handle.
+ *   bExt [L] - If .T., returns array of { handle, class, text }; else array of handles.
+ *
+ * Return:
+ *   [A] - Array of child window details or HWND handles.
+ *
+ * Side Effects:
+ *   Invokes C_EnumChildWindows Win32 API iteration logic.
+ */
 FUNCTION EnumChildWindows( hWnd, bExt )
-*-----------------------------------------------------------------------------*
    LOCAL aChilds := {}
    LOCAL bAction
 

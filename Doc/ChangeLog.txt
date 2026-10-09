@@ -1,3 +1,373 @@
+2026/10/08: HMG Extended Edition version 26.10.
+  * Modified: Refactored Image Control C code:
+           - Refactored C_HASALPHA loop: cleaner early-exit, starts directly
+             at the first alpha byte.
+           - A plain TRANSPARENT clause on a PNG that contains an alpha channel.
+           - A classic BMP with a transparent colour still uses TransparentBlt.
+           - Fully-opaque 32-bpp images stay on the StretchBlt / colour-key path
+             (especially after the improved C_HASALPHA test).
+           - No extra numeric alpha-level parameter is required for normal use.
+           These four small adjustments (improved detection, always evaluate
+           HasAlpha for TRANSPARENT, correct C branch, and GDI+ background) make
+           the IMAGE control behave correctly for PNG-with-alpha.
+           Contributed by Grigory Filatov
+  * Updated: The following C functions in the HBPrinter library have been fixed:
+           - RR_PRINTDIALOG  
+             - Added null checks for pDevNames / pDevMode.  
+             - Corrected long/network printer name extraction using proper
+               byte offset from DEVNAMES.
+           - rr_getdevmode  
+             - Pre-frees previous allocations to avoid leaks.  
+             - Added full error checking on OpenPrinter / GetPrinter.  
+             - Creates a safe memory clone (memcpy) of PRINTER_INFO_2
+               instead of a second (unreliable) GetPrinter call.
+           - EF_RESETPRINTER  
+             - Guards against null pi22 / hPrinter before calling SetPrinter.
+           - RR_SETDEVMODE  
+             - Added null-pointer guards (prevents ACCESS_VIOLATION).  
+             - Uses |= to set dmFields bits.  
+             - Checks ResetDC return value.
+           - RR_DEVICECAPABILITIES  
+             - Fixed broken pointer arithmetic (WORD* / POINT* instead of TCHAR*).  
+             - Advances by element count (+= 1) instead of sizeof.  
+             - Increased internal buffers to prevent overflow.
+           Contributed by Eladio Bravo
+           (see source in folder \Source\HBPrinter)
+  * Updated: Adapted FiveWin TSBrowse 9.0 for HMG:
+           - detailed comments have been added to the SBrowse() and _TBrowse()
+             functions.
+           Contributed by Grigory Filatov
+           (see h_controlmisc2.prg in folder \Source\TSBrowse)
+  * Updated: HMG_HPDF library:
+           - added detailed comments to the core code.
+           Contributed by Grigory Filatov
+           (see source in folder \source\HMG_HPDF)
+  * Updated: SQLite3 v3.53.4 library:
+           - adapted for multi-threaded use. [PRO VERSION]
+           Contributed by Grigory Filatov
+           (see demo in folder \samples\Advanced\Sqlit3DD)
+  * Updated: Harbour Compiler 3.2.1dev (SVN 2026-09-29 21:51).
+           * Updated: HbSqldd library source code:
+             - reshaped SQLBASE RDD for multi-threading;
+             - multi-threading is now enabled in SQLite SDD;
+             - RDDI_CONNECT method now supports "THREAD:" and "GLOBAL:"
+               prefixes in the driver specifier, for example:
+               RDDINFO( RDDI_CONNECT, {"THREAD:SQLITE3", "..."} )
+             - implemented RDDI_INSERTID: it is mapped to SQLite
+               ROWID of last inserted row, that should also
+               transparently map to PRIMARY KEY if it's defined
+               as single integer column.
+             (see in folder \Source\HbSqlDD)
+           Contributed by Grigory Filatov
+           (look at ReadMe.txt in folder \harbour) [PRO VERSION]
+  * Updated: Harbour Compiler 3.2.0 final (SVN 2026-07-07 12:00).
+           Contributed by Grigory Filatov
+           (look at ReadMe.txt in folder \harbour) [STANDARD VERSION]
+  * New: Added HBBENCH utility: Harbour Benchmark Suite v1.0.
+           Contributed by Marcos Jarrin
+           Adapted for Minigui Extended by Grigory Filatov
+           (see source code and documentation in folder \harbour\utils\hbbench)
+  * New: 'Scientific Calculator Extended' sample:
+           - includes trigonometry, hyperbolic & inverse functions, logarithms,
+             complex numbers, financial mathematics, statistics with 6 regression
+             models, polar/rectangular conversion, 9 memory registers, history,
+             and 4 display modes (NORM/FIX/SCI/ENG).
+           Contributed by Marcos Jarrin
+           (see in folder \samples\Advanced\calculator)
+  * Updated: 'Advanced examples using OOP' samples:
+           - updated ORM (Object-Relational Mapping) from v1 to v2, including
+             its corresponding test suite.  
+           - 'Customer Management System' that utilizes this ORM.  
+             Includes:  
+             - technical manual (documentation for developers);
+             - user manual (step-by-step guides for end users).
+           Don't miss this very interesting example!
+           Contributed by Marcos Jarrin
+           (see in folder \samples\Advanced\HbORM)
+  * New: 'TSBrowse Array - Editable Data with Validation, Dynamic Colors and
+           File Persistence'sample. This example demonstrates a complete TSBrowse
+           array-based editing workflow using Harbour MiniGUI Extended Edition.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Advanced\Tsb_array_edit)
+  * New: 'MiniGUI WebView2 DLL component support' sample:
+           - added MiniGUIWebView2.dll and corresponding Harbour wrapper;
+           - required installed Microsoft Edge WebView2 Runtime (Evergreen).
+           API Harbour:
+             WV2_Initialize()
+             nBrowser := WV2_Create( nParentHwnd, nX, nY, nW, nH, cInitialUrl,
+                                     [ cProfile ], [ nMessage ] )
+             WV2_Resize( nBrowser, nX, nY, nW, nH )
+             WV2_Navigate( nBrowser, cUrl )
+             WV2_Reload( nBrowser )
+             WV2_Back( nBrowser )
+             WV2_Forward( nBrowser )
+             WV2_Print( nBrowser, lPreview )
+             WV2_IsReady( nBrowser )
+             aEvent := WV2_NextEvent( nBrowser )
+             cError := WV2_LastError()
+             WV2_Close( nBrowser )
+             WV2_Shutdown()
+           Contributed by Verchenko Andrey
+           (see in folder \samples\Advanced\WebView2)
+  * Updated: 'Tsbrowse object: Test windows type MAIN, STANDARD, MODAL' sample.
+           Contributed by Sergej Kiselev and Verchenko Andrey
+           (see in folder \samples\Advanced\Tsb_2WndType)
+  * Updated: 'TSBrowse Export data to XLS/XML/DOC files' sample:
+           - added export to LibreOffice ODS format.
+           Contributed by Verchenko Andrey
+           (see in folder \samples\Advanced\Tsb_Export_2)
+
+2026/08/24: HMG Extended Edition version 26.08.
+  * Refactored: Gradient drawing logic to eliminate duplicated code by using
+           a reusable drawing code block.
+           * Fixed GDI Resource Leak (Critical): In LinearGradientBrush, if
+             CreateCompatibleDC succeeds but CreateCompatibleBitmap fails,
+             the device context (memDC) is never deleted, causing a GDI
+             resource leak.
+           * Improved: Simplified control flow with early-exit validation for
+             better readability and maintainability.
+           * Improved: Replaced magic numeric border values with descriptive
+             named constants.
+           * Refactored: Unified immediate painting and repaint task rendering
+             to ensure both use identical drawing logic.
+           * Improved: Standardized variable names and code formatting for
+             greater consistency across the module.
+           * Optimized: Simplified native C helper functions by removing
+             redundant boolean conversions while preserving behavior.
+           Contributed by Grigory Filatov
+           (see demo in folder \samples\Advanced\DrawGradient)
+  * Enhanced: Added TreeBuildFromArray() - new helper function.
+           - Builds a complete TREE control hierarchy from a simple parent-child
+             array.
+           - Supports unlimited nesting depth while preserving original array
+             order.
+           - Accepts any ID type (character, numeric, GUID, mixed) by using
+             the row index as the internal Tree item ID.
+           - Optional Image and Cargo columns.
+           - Optional code-block to decide NODE vs TREEITEM.
+           - Simple usage:
+             TreeBuildFromArray( aData [, nIdCol, nTextCol, nParentCol,
+               nImageCol, nCargoCol, bIsNode ] )
+           Requested by Yunus Dagia.
+           Contributed by Grigory Filatov
+           (see demo2.prg in folder \samples\Basic\Tree_3)
+  * Enhanced: Improved source documentation across core modules with consistent
+           structured comments (Purpose, Parameters, Return, Side Effects):
+           - Create Windows handling;
+           - Global Events procedure;
+           - Rating control;
+           - RichEditBox control;
+           - StatusBar control;
+           - Tab control;
+           - Timer control;
+           - ToolBar control;
+           - TreeView control;
+           - MRU menu support;
+           - MessageBox handling;
+           - HbPrinter library;
+           - MiniPrint library;
+           - PDF generation library hbvpdf.
+           * Added inline explanations for key logic.
+           * Improved clarity and maintainability with no functional changes.
+           Contributed by Grigory Filatov
+  * Updated: Adapted FiveWin TSBrowse 9.0 for HMG:
+           - improved FilterFTS() method with extra search symbols.
+           Suggested and contributed by Sergej Kiselev
+           (see demo in folder \samples\Advanced\Tsb_Filter)
+  * Updated: HBPrinter library:
+           - Fixed incorrect DEVNAMES offset calculation in RR_PRINTDIALOG.
+           - Added null checks for pDevNames and pDevMode to prevent crashes
+             with network printers.
+           - Made GlobalUnlock() calls safer.
+           - Changed hDC = 0 to hDC = NULL for pointer consistency.
+           Contributed by Eladio Bravo
+           (see source in folder \Source\HBPrinter)
+  * New: 'Tree Build From Array' sample:
+           - Demonstrates how to dynamically populate the Tree control from
+             a multi-dimensional array loaded from a DBF table.
+           Contributed by Grigory Filatov
+           (see demo3.prg in folder \samples\Basic\Tree_3)
+  * New: 'Tree Build From Directory' sample:
+           - Builds a Tree control from the Windows file system via
+             TreeBuildFromArray().
+           - Recursively scans a selected folder into the standard parent-child
+             array { ID, Caption, ParentID, Cargo, IsNode }
+           - Demonstrates that TreeBuildFromArray() is a generic hierarchy
+             builder (file system, DBF, SQL, XML, JSON, etc.)
+           - Includes Browse/Refresh, Expand All/Collapse All, selection details
+             (Name/Type/Full Path), and double-click to expand folders or open files.
+           - Complements the DBF-based sample to show API reusability across
+             data sources.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Basic\TreeBuildFromDirectory)
+  * Updated: 'GraphPlus library demo' sample:
+           - Added comprehensive professional documentation comments throughout
+             the source code while preserving original logic, structure, and
+             formatting exactly.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Advanced\GraphPlus)
+  * Updated: 'CAB Creation, Info & Extraction' sample:
+           - added detailed comments to the code.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Advanced\HbCAB_2)
+  * New: Added New Utility - Gemini API Client.
+           - Added console utility gemini for interacting with Google Gemini
+             models from Harbour. 
+           - Supports text prompts, multiple source files, streaming responses
+             and optional file uploads.
+           - Fully command-line driven (model, temperature, key, input/output
+             files).
+           - Includes reusable TGemini class, README and sample prompt/demo pair.
+           Contributed by Grigory Filatov
+           (located in folder \UTILS\Gemini_Client) [PRO VERSION]
+  * Updated: 'Harbour Commander' utility by Rafal Jopek:
+           - Added comprehensive professional documentation comments.
+           Contributed by Grigory Filatov
+           (see in folder \UTILS\Harbour_Commander) [PRO VERSION]
+  * Updated: 'EZ Lines' sample application to version 1.5:
+           - Source reorganized into clear sections with improved documentation
+             (board encoding, states, algorithms) and modern MiniGUI style.
+           - All shared state converted to pure STATIC variables with descriptive
+             comments.
+           - Starting-ball placement in GameNew() now always chooses three
+             distinct empty cells (previously could place fewer on collisions).
+           - Standardised routine headers to a short, uniform style focusing on
+             purpose and key behaviour.
+           - Preserved all original game logic, algorithms, and UI behaviour
+             with no functional changes.
+           - Improved readability and maintainability so the example can serve
+             as a teaching reference for path-finding, animation, INI/DBF
+             persistence, and MiniGUI event handling.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Applications\EZ_Lines) [PRO VERSION]
+
+2026/08/05: HMG Extended Edition version 26.07 (Update 3).
+  * Fixed: Browse: WM_MOUSEWHEEL is now fully handled by the subclass procedure
+           to prevent unwanted native ListView scrolling.
+           * Improved: Simulated keyboard navigation now generates complete key
+             press and key release events.
+           * Improved: Prevents unwanted horizontal scrolling while preserving
+             mouse-wheel navigation.
+           Contributed by Eladio Bravo
+           (see demo.prg in folder \samples\Basic\Browse_1)
+  * Enhanced: Improved mouse wheel handling:
+           - Honors the user's Windows wheel scrolling settings.
+           - Provides smoother scrolling in forms with virtual dimensions.
+           Contributed by Grigory Filatov
+           (see demo in folder \samples\Basic\VIRTUALDIM)
+  * Enhanced: Improved SystemParametersInfo() C function third-parameter handling.
+           - SPI_GET* actions now return values through a by-reference third
+             parameter.
+           Contributed by Grigory Filatov
+  * Updated: Adapted FiveWin TSBrowse 9.0 for HMG:
+           - Replaced the local wheel scroll line implementation with the updated
+             SystemParametersInfo() function.
+           Contributed by Grigory Filatov
+  * New: 'Automatic Last GRID Column Resizing' sample.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Basic\Grid_AutoColumn)
+  * New: 'Tree Control Basics' sample:
+           - Demonstrates hierarchical node creation, item selection, runtime node
+             management, and runtime expansion and collapse.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Basic\Tree_3)
+  * Updated: 'Desktop Windows Version Market Share Worldwide' sample:
+           - refactored to follow HMGEE-Sample-Library coding and documentation
+             standards;
+           - updated data for June 2026;
+           - fixed random color selection.
+           Contributed by Grigory Filatov
+           (see demo.prg in folder \samples\Basic\GraphPrint)
+
+2026/07/29: HMG Extended Edition version 26.07 (Update 2).
+  * Fixed: A very old typo when restoring the old text color in ButtonEx processing.
+           Contributed by Grigory Filatov
+  * Enhanced: The Image control now supports getting the STRETCH property at runtime.
+           You can get this property with:
+           - function syntax:
+             GetProperty( Form, Image, 'Stretch' ) --> .T.|.F.
+           - pseudo-OOP syntax:
+             lStretch := Form.Image.Stretch
+           It was a postponed modification.
+           Contributed by Grigory Filatov
+  * Updated: Added additional checking for potential issues in the ownerdraw color
+           TAB code.
+           Suggested by Grzegorz Wojnarowski.
+           Contributed by Grigory Filatov
+           (see demo.prg in folder \samples\Basic\TAB)
+  * Updated: Adaptation FiveWin Class TSBrowse 9.0 in HMG:
+           - correction of _TBrowse_bAdjColumns block in the _TBrowse() function.
+           Contributed by Sergej Kiselev
+           (see demos in folder \samples\Advanced\Tsb_2tsb)
+  * Updated: HbSQLite3 library:
+           - update for using SQLITE3 version 3.53.4 (from 3.53.3). [PRO VERSION]
+           Contributed by Grigory Filatov
+           (see demo in folder \samples\Advanced\SQLITE_2)
+  * New: Added 'Modern Harbour MiniGUI Development Guide' practical handbook aimed
+           at developers who are new to MiniGUI, as well as those modernizing legacy
+           Clipper or Harbour applications.
+           Complete coverage of 11 chapters, including:
+           * Introduction
+           * Installing the Development Environment
+           * Recommended Project Structure
+           * MiniGUI Fundamentals
+           * Modern Best Practices
+           * 20 complete, fully working MiniGUI examples
+           * Refactoring Legacy MiniGUI Code
+           * Coding Standards
+           * 25 Common Mistakes and how to avoid them
+           * MiniGUI Development Checklist
+           * Appendix with frequently used commands, controls, events, and
+             Harbour functions
+           Contributed by Grigory Filatov
+           (see MiniGUI_Guide_EN.pdf in folder \Doc) [PRO VERSION]
+  * Enhanced: 'Low Level DBU' utility by Bicahi Esgici:
+           - Added extensive comments and improved documentation.
+           - Major cleanup of HL_DBInfoLL() with detailed inline explanations
+             of DBF parsing logic.
+           Contributed by Grigory Filatov
+           (see in folder \Utils\LL_DBU) [PRO VERSION]
+
+2026/07/22: HMG Extended Edition version 26.07 (Update 1).
+  * Fixed: Restored the same visible behavior as before with the correct way
+           to handle WM_MOUSEWHEEL message in the BROWSE control:
+           - keep the same SB_TOP/SB_PAGEUP and SB_BOTTOM/SB_PAGEDOWN mapping,
+             but replace HiWord(wParam) with GET_WHEEL_DELTA_WPARAM(wParam) and
+             explicitly test > 0 / < 0.
+           That gives the same intent with correct Win32 semantics.
+           Problem was reported by Eladio Bravo.
+           Contributed by Grigory Filatov
+           (see demo.prg in folder \samples\Basic\Browse_1)
+  * Updated: 'Browse scopes' sample:
+           - Updated saving and restoring complete database environments
+             (open tables, indexes, relations, filters, record pointers, locks).
+           - Added detailed MiniGUI integration notes and practical usage examples
+             in the DSU_UDFS.PRG file header.
+           - Improved code robustness and readability (better error handling in
+             SaveArry, cleaner control flow in LoadLevel).
+           Contributed by Grigory Filatov
+           (see in folder \samples\Basic\Browse_4)
+  * Updated: 'DBF Header Info' sample:
+           - Added a comprehensive Technical Notes section.
+           - Refactored and significantly expanded inline documentation.
+           - Clarified binary DBF header layout, field descriptor processing,
+             and hexadecimal conversion routines.
+           - Enhanced overall code readability and long-term maintainability
+             without changing application behavior.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Advanced\dbfHeaderInfo)
+  * Updated: 'System Metrics' sample by Pete D.:
+           - Added comprehensive professional documentation comments throughout
+             the source code while preserving original logic, structure, and
+             formatting exactly.
+           - Enhanced clarity of sorting logic, wait window management, and
+             details pane updates.
+           - Maintained full compatibility with original 2010 codebase structure.
+           - Updated inline comments for better readability without altering
+             any executable code.
+           Contributed by Grigory Filatov
+           (see in folder \samples\Advanced\WinMetrics)
+
 2026/07/15: HMG Extended Edition version 26.07.
   * Modified: Major cleanup of MENU customization API (C Layer).
            * Refactored XGETMENUCAPTION / XSETMENUCAPTION: added error checks, early
@@ -107,6 +477,10 @@
            * No functional or behavioral changes.
            Contributed by Grigory Filatov
            (see in folder \samples\Advanced\ArrayRDD)
+  * Updated: UnRar sample:
+           - updated unrar.dll to the current version 7.23 (from 7.22).
+           Contributed by Grigory Filatov
+           (see in folder \samples\Advanced\UnRar)
 
 2026/06/24: HMG Extended Edition version 26.06.
   * Fixed: Added missing AutoSize width recalculation for radio buttons 2+ in
@@ -648,7 +1022,7 @@
            Contributed by Grigory Filatov
            (see in folder \samples\Basic\TaskDialogs\TTaskDialog)
   * Updated: 'ActiveX Report Generator' sample:
-           — the procedure for generating reports using the Selector utility
+            the procedure for generating reports using the Selector utility
              has been updated.
            Contributed by Grigory Filatov
            (see in folder \samples\Advanced\ActiveX_Report)
@@ -6836,7 +7210,7 @@
            - update for using SQLITE3 latest version 3.32.3.
            Contributed by Grigory Filatov <gfilatov@inbox.ru>.
   * Updated: Modified the application manifest for compatibility with a recent
-           heap implementation in Windows 10 (‘heapType’ element).
+           heap implementation in Windows 10 (heapType element).
            This feature is supported in Windows 10, version 2004, and later.
            Contributed by Grigory Filatov <gfilatov@inbox.ru>
            (see Windows10.Manifest in folder \Resources)
@@ -7125,7 +7499,7 @@
            Based upon a contribution of HMG user Jimmy.
            Adapted for Minigui Extended by Grigory Filatov <gfilatov@inbox.ru>
            (see in folder \samples\Basic\Zip_4)
-  * New: 'TsBrowse SetArray for Ñlipboard' sample.
+  * New: 'TsBrowse SetArray for Ð¬ipboard' sample.
            Contributed by Sergej Kiselev and Verchenko Andrey
            (see demo4.prg in folder \samples\Advanced\Tsb_Array_2)
   * Updated: 'Cas_dbf' sample: added an enhanced demo with Tsbrowse search.
@@ -23124,7 +23498,7 @@
            Reported and explained by Janusz Pora <soft_design@poczta.onet.pl>
   * Changed: Window's ON RESTORE event operates on NOSIZE window only for avoid conflict with ON RESIZE event.
            Reported by Janusz Pora <soft_design@poczta.onet.pl>
-  * Fixed: RicheditEx sample resize problem on WinXP. Reported by René Koot <rene@plantenkennis.com>.
+  * Fixed: RicheditEx sample resize problem on WinXP. Reported by RençŸ‹oot <rene@plantenkennis.com>.
   * Changed: Sample Grid_1 for get and set column value of selected row in Grid. Contributed by Grigory Filatov <gfilatov@freemail.ru>
            (see \samples\basic\Grid_1\demo.prg)
 
@@ -23190,7 +23564,7 @@
      + SET ERRORLOG TO <cFile> - set new errorlog file (default {APPDIR>}\ErrorLog.htm)
      + SET ERRORLOG TO         - reset errorlog file to default value  
      ! Default errorlog dir is always set to *.exe dir, and not modified by other HMG functions.
-     Thanks to René Koot <rene@plantenkennis.com> for report! ( see /samples/basic/errorlog/demo.prg )
+     Thanks to RençŸ‹oot <rene@plantenkennis.com> for report! ( see /samples/basic/errorlog/demo.prg )
 
   * New: useful additions in GRID & BROWSE controls. Contributed by Jacek Kubica <kubica@wssk.wroc.pl>
      + ColumnWidth(n) property added 

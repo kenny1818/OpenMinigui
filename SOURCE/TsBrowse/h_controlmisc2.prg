@@ -6,9 +6,30 @@
 #include "TSBrowse.ch"
 #include "hbcompat.ch"
 
-* ============================================================================
-* FUNCTION SBrowse() Version 9.0 Nov/30/2009
-* ============================================================================
+/*
+ * Routine: SBrowse()
+ *
+ * Purpose:
+ *   Creates and displays a dynamic TSBrowse window for viewing and editing database workareas, SQL tables, or arrays.
+ *
+ * Parameters:
+ *   uAlias - Character, Array, Number, Block, Date, Logical, Pointer, or Hash - Data source (workarea alias, table, array, etc.).
+ *   cTitle - Character or Array - Window title, or array containing title and configuration object.
+ *   bSetUp - Block, Array, or Logical - Setup block, array of setup blocks, or cell browse flag.
+ *   aCols - Array - Headers/column specifications.
+ *   nWidth - Numeric or Array - Window width, or array with main width and record view width.
+ *   nHeight - Numeric or Array - Window height, or array with main height and record view height.
+ *   lSql - Logical - Flag indicating SQL table query mode.
+ *   lModal - Logical, Numeric, or Character - Window modal state or window type code ("M", "C", "S").
+ *   lNumber - Logical or Numeric - Flag/setting to enable row numbering column and footer counter.
+ *   lCenter - Logical - Flag indicating whether to center the window on screen.
+ *
+ * Returns:
+ *   NIL - Always returns NIL.
+ *
+ * Side Effects:
+ *   Creates and activates an HMG GUI window, instantiates a TSBrowse control and buttons, alters workarea selections, opens/closes database workareas, and modifies _HMG_InplaceParentHandle.
+ */
 
 FUNCTION SBrowse( uAlias, cTitle, bSetUp, aCols, nWidth, nHeight, lSql, lModal, lNumber, lCenter )
 
@@ -229,6 +250,7 @@ FUNCTION SBrowse( uAlias, cTitle, bSetUp, aCols, nWidth, nHeight, lSql, lModal, 
    nY := This.ClientHeight - nGh - oApp:H1
    nX := nGw
 
+   // Navigation and action controls
    @ nY, nX BUTTON Btn_1 CAPTION oBrw:aMsg[ 44 ] WIDTH oApp:W1 HEIGHT oApp:H1 ;
       ACTION {|| oBrw:Report( cTitle,,,, .T. ), oBrw:GoTop() }
 
@@ -346,7 +368,28 @@ FUNCTION SBrowse( uAlias, cTitle, bSetUp, aCols, nWidth, nHeight, lSql, lModal, 
 
 RETURN NIL
 
-//--------------------------------------------------------------------------------------------------------------------//
+/*
+ * Routine: SBrowse_Record()
+ *
+ * Purpose:
+ *   Displays a key/value detail browse window for the currently selected record of a TSBrowse control.
+ *
+ * Parameters:
+ *   oBrw - Object - Parent TSBrowse control instance.
+ *   cTitle - Character - Window title for the record inspector.
+ *   bSetUp - Block or Logical - Setup block or toggle flag for SBrowse.
+ *   aHead - Array - Array of column header titles for Key and Value.
+ *   nWidth - Numeric or Array - Browse window width setting.
+ *   nHeight - Numeric or Array - Browse window height setting.
+ *   lNoCrLf - Logical - Flag indicating whether to replace line breaks in column headers with spaces.
+ *   lModal - Logical, Numeric, or Character - Window modal type indicator.
+ *
+ * Returns:
+ *   NIL - Always returns NIL.
+ *
+ * Side Effects:
+ *   Calls SBrowse() which creates and activates a modal or child GUI window.
+ */
 
 FUNCTION SBrowse_Record( oBrw, cTitle, bSetUp, aHead, nWidth, nHeight, lNoCrLf, lModal )
 
@@ -367,9 +410,27 @@ FUNCTION SBrowse_Record( oBrw, cTitle, bSetUp, aHead, nWidth, nHeight, lNoCrLf, 
 
 RETURN NIL
 
-* ============================================================================
-* FUNCTION _TBrowse()  by SergKis
-* ============================================================================
+/*
+ * Routine: _TBrowse()
+ *
+ * Purpose:
+ *   Creates one or multiple TSBrowse instances based on parameter specification object or array.
+ *
+ * Parameters:
+ *   oParam - Object or Array - Data object containing configuration options or an array of such objects.
+ *   uAlias - Character, Array, or Object - Database alias, array data, or TODBC object.
+ *   cBrw - Character - Name of the browse control.
+ *   nY - Numeric - Top row position in pixels.
+ *   nX - Numeric - Left column position in pixels.
+ *   nW - Numeric - Control width in pixels.
+ *   nH - Numeric - Control height in pixels.
+ *
+ * Returns:
+ *   Object or Array - Single TSBrowse control object or array of created TSBrowse objects.
+ *
+ * Side Effects:
+ *   Instantiates TSBrowse objects in the parent window.
+ */
 
 FUNCTION _TBrowse( oParam, uAlias, cBrw, nY, nX, nW, nH )
 
@@ -390,6 +451,28 @@ FUNCTION _TBrowse( oParam, uAlias, cBrw, nY, nX, nW, nH )
    ENDIF
 
 RETURN iif( lBrw, aBrw, oBrw )
+
+/*
+ * Routine: _TBrowse_Create()
+ *
+ * Purpose:
+ *   Internal helper function that constructs and configures a single TSBrowse control within a form.
+ *
+ * Parameters:
+ *   oParam - Object - Configuration object containing properties and callback code blocks.
+ *   uAlias - Character, Array, or Object - Database alias, array, or TODBC object data source.
+ *   cBrw - Character - Control identifier name.
+ *   nY - Numeric - Vertical position in pixels.
+ *   nX - Numeric - Horizontal position in pixels.
+ *   nW - Numeric - Control width in pixels.
+ *   nH - Numeric - Control height in pixels.
+ *
+ * Returns:
+ *   Object - Configured TSBrowse control instance.
+ *
+ * Side Effects:
+ *   Defines a TSBrowse control, registers events, selects workareas, creates fonts/brushes if required, processes message events.
+ */
 
 STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
 
@@ -490,7 +573,7 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
    aHead  := oParam:aHead  ; DEFAULT aHead  := oParam:aHeader
    aField := oParam:aField ; DEFAULT aField := oParam:aFields
    aFoot  := oParam:aFoot  ; DEFAULT aFoot  := oParam:aFooter
-   // Convert character width (oParam:aSizeLen) to pixel width (oParam:aSize)
+   // Convert character width array (oParam:aSizeLen) to pixel width array (oParam:aSize)
    DEFAULT oParam:aSizeLen := oParam:aSizeChar
    DEFAULT oParam:aSizeLen := oParam:aSizeChars
    IF IsArray( oParam:aSizeLen ) .AND. Len( oParam:aSizeLen ) > 0
@@ -580,21 +663,21 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
           ENDIF
       NEXT
    ENDIF
-   // log out
+   // Execute logging callback if defined
    IF !Empty( oParam:l_Log_Out ) .AND. IsBlock( oParam:b_Log_Out )
       Eval( oParam:b_Log_Out, uAlias, oParam, ProcName() ) 
    ENDIF
-   // renumbering SpecHeader
+   // Set default special header renumbering code block
    DEFAULT oParam:bSpecHdEnum := {|ob,op,cChar| _TBrowse_bSpecHdEnum(ob,op,cChar) }
-   // adjusting all columns
+   // Set default column adjustment code block
    DEFAULT oParam:bAdjColumns := {|ob,op| _TBrowse_bAdjColumns(ob,op) }
-   // block code after DEFINE TBROWSE
+   // Set default initialization callback block executed after DEFINE TBROWSE
    DEFAULT bInit := {|ob,op| _TBrowse_bInit(ob,op) }
-   // block code before END TBROWSE, after bInit
+   // Set default body configuration block
    DEFAULT oParam:bBody  := {|ob,op| _TBrowse_bBody(ob,op) }
-   // block code after END TBROWSE
+   // Set default post-definition configuration block
    DEFAULT oParam:bAfter := {|ob,op| _TBrowse_bAfter(ob,op) }
-   // final block of code after oParam:bAfter
+   // Set default finalization block
    DEFAULT bEnd  := {|ob,op| _TBrowse_bEnd(ob,op) }
    //
    DEFINE TBROWSE &cBrw OBJ oBrw AT nY, nX WIDTH nW HEIGHT nH CELL ;
@@ -667,10 +750,10 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
       :SetAppendMode( .F. )
       :SetDeleteMode( .F. )
 
-      IF HB_ISBLOCK( bInit ) ; Eval( bInit, oBrw, oParam )               // 1. call your Init function
+      IF HB_ISBLOCK( bInit ) ; Eval( bInit, oBrw, oParam )               // Call user-defined or default initialization block
       ENDIF
 
-      IF oParam:lNoPicture                          // clear oCol:cPicture
+      IF oParam:lNoPicture                          // Clear column picture masks if lNoPicture flag is set
          j := iif( :lIsDbf, "ORDKEYNO", "ARRAYNO" )
          FOR EACH i IN :aColumns
              IF !Empty( i:cName ) .AND. i:cName != j
@@ -678,12 +761,12 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
              ENDIF
          NEXT
       ENDIF
-      // renumbering SpecHeader
+      // Renumber special header if enabled
       IF :lDrawSpecHd .AND. ! Empty( oParam:aNumber ) .AND. HB_ISBLOCK( oParam:bSpecHdEnum ) 
          Eval( oParam:bSpecHdEnum, oBrw, oParam )
       ENDIF
 
-      IF HB_ISBLOCK( oParam:bBody ) ; Eval( oParam:bBody, oBrw, oParam ) // 2. call your Body function
+      IF HB_ISBLOCK( oParam:bBody ) ; Eval( oParam:bBody, oBrw, oParam ) // Call user-defined or default body block
       ENDIF
 
       IF ! :lDrawSuperHd .AND. lSuperHd
@@ -696,22 +779,22 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
 
       IF HB_ISLOGICAL( oParam:bLDblClick ) .OR. HB_ISLOGICAL( oParam:bDblClick )
          :bLDblClick := {| p1, p2, p3, ob | p1 := p2 := p3, ob:PostMsg( WM_KEYDOWN, VK_RETURN, 0 ) }
-      ELSEIF HB_ISBLOCK( oParam:bLDblClick ) // :bLDblClick := {|p1,p2,p3,ob| ... }
+      ELSEIF HB_ISBLOCK( oParam:bLDblClick ) // Assign double-click event callback
          :bLDblClick := oParam:bLDblClick
-      ELSEIF HB_ISBLOCK( oParam:bDblClick )  // :bLDblClick := {|p1,p2,p3,ob| ... }
+      ELSEIF HB_ISBLOCK( oParam:bDblClick )  // Assign double-click event callback
          :bLDblClick := oParam:bDblClick
       ENDIF
 
       IF HB_ISBLOCK( oParam:bRClicked )
-         :bRClicked := oParam:bRClicked      // :bRClicked := {|p1,p2,p3,ob| ... }
+         :bRClicked := oParam:bRClicked      // Assign right-click event callback
       ENDIF
 
       IF HB_ISBLOCK( oParam:bLClicked )
-         :bLClicked := oParam:bLClicked      // :bLClicked := {|p1,p2,p3,ob| ... }
+         :bLClicked := oParam:bLClicked      // Assign left-click event callback
       ENDIF
 
       IF HB_ISBLOCK( oParam:bKeyDown )
-         :bKeyDown := oParam:bKeyDown        // :bKeyDown := { |nKey,nFalgs,ob| ... }
+         :bKeyDown := oParam:bKeyDown        // Assign key down event callback
       ENDIF
 
       IF HB_ISNUMERIC( oParam:nFireKey )
@@ -720,8 +803,8 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
 
       IF HB_ISARRAY( oParam:aUserKeys )
          FOR EACH aTmp IN oParam:aUserKeys
-            i := iif( Len( aTmp ) > 2, aTmp[ 3 ], .F. ) // Ctrl+...
-            j := iif( Len( aTmp ) > 3, aTmp[ 4 ], .F. ) // Shift+...
+            i := iif( Len( aTmp ) > 2, aTmp[ 3 ], .F. ) // Process Control modifier state
+            j := iif( Len( aTmp ) > 3, aTmp[ 4 ], .F. ) // Process Shift modifier state
             :UserKeys( aTmp[ 1 ], aTmp[ 2 ], ! Empty( i ), ! Empty( j ) )
          NEXT
       ENDIF
@@ -736,7 +819,7 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
          :lMoreFields := ( :nColCount() > 30 )
       ELSEIF oParam:uSelector == NIL .AND. oParam:lAdjust == NIL
          IF HB_ISBLOCK( oParam:bAdjColumns )
-            Eval( oParam:bAdjColumns, oBrw, oParam ) // :AdjColumns(...)
+            Eval( oParam:bAdjColumns, oBrw, oParam ) // Auto-adjust column widths
          ENDIF
       ENDIF
 
@@ -752,21 +835,21 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
    ENDIF
 
    IF HB_ISBLOCK( oParam:bGotFocus )
-      oBrw:bGotFocus := oParam:bGotFocus     // :bGotFocus := {|ob,hCtlLost| ... }
+      oBrw:bGotFocus := oParam:bGotFocus     // Assign focus received event callback
    ENDIF
 
    IF HB_ISBLOCK( oParam:bLostFocus )
-      oBrw:bLostFocus := oParam:bLostFocus   // :bLostFocus := {|hCtlFocus,ob| ... }
+      oBrw:bLostFocus := oParam:bLostFocus   // Assign focus lost event callback
    ENDIF
 
    IF HB_ISBLOCK( oParam:bChange )
-      oBrw:bChange := oParam:bChange         // :bChange := {|ob| ... }
+      oBrw:bChange := oParam:bChange         // Assign row/selection change callback
    ENDIF
 
-   IF HB_ISBLOCK( oParam:bAfter ) ; Eval( oParam:bAfter, oBrw, oParam ) // 3. call your After function
+   IF HB_ISBLOCK( oParam:bAfter ) ; Eval( oParam:bAfter, oBrw, oParam ) // Call user-defined or default post-definition block
    ENDIF
 
-   IF HB_ISBLOCK( bEnd ) ; Eval( bEnd, oBrw, oParam )                   // 4. call default End function if this is not redefined
+   IF HB_ISBLOCK( bEnd ) ; Eval( bEnd, oBrw, oParam )                   // Call default or custom finalization block
    ENDIF
 
    IF HB_ISARRAY( oParam:aEvents )
@@ -779,7 +862,25 @@ STATIC FUNCTION _TBrowse_Create( oParam, uAlias, cBrw, nY, nX, nW, nH )
 
 RETURN oBrw
 
-STATIC FUNCTION _TBrowse_bSpecHdEnum( ob, op, cChar ) // renumbering SpecHeader
+/*
+ * Routine: _TBrowse_bSpecHdEnum()
+ *
+ * Purpose:
+ *   Renumbers special header titles across visible columns in a TSBrowse control.
+ *
+ * Parameters:
+ *   ob - Object - Target TSBrowse control object.
+ *   op - Object - Configuration parameter object.
+ *   cChar - Character - Prefix or fill character for special header numbering.
+ *
+ * Returns:
+ *   NIL - Always returns NIL.
+ *
+ * Side Effects:
+ *   Updates cSpcHeading attribute of visible columns.
+ */
+
+STATIC FUNCTION _TBrowse_bSpecHdEnum( ob, op, cChar ) // Renumber special header headings
    LOCAL oCol, cCnt, nCnt := 0
    LOCAL cName := iif( ob:lIsDbf, "ORDKEYNO", "ARRAYNO" )
 
@@ -799,84 +900,136 @@ STATIC FUNCTION _TBrowse_bSpecHdEnum( ob, op, cChar ) // renumbering SpecHeader
 
 RETURN Nil
 
-STATIC FUNCTION _TBrowse_bAdjColumns( ob, op ) // adjusting all columns  
+/*
+ * Routine: _TBrowse_bAdjColumns()
+ *
+ * Purpose:
+ *   Adjusts visible column widths of a TSBrowse control.
+ *
+ * Parameters:
+ *   ob - Object - Target TSBrowse control object.
+ *   op - Object - Configuration parameter object.
+ *
+ * Returns:
+ *   NIL - Always returns NIL.
+ *
+ * Side Effects:
+ *   Invokes AdjColumns on the TSBrowse control.
+ */
+
+STATIC FUNCTION _TBrowse_bAdjColumns( ob, op ) // Adjust column widths
    LOCAL aCol, nI, nK, lAdj := .T.
    LOCAL cName := iif( ob:lIsDbf, "ORDKEYNO", "ARRAYNO" )
    
-   IF IsBlock( op:b_AdjColumns )      // user code block 
+   IF IsBlock( op:b_AdjColumns )      // Execute user column adjustment callback
       nK := Eval( op:b_AdjColumns, ob, op )
       IF IsLogical( nK ) ; lAdj := nK
       ENDIF
    ENDIF
    IF lAdj
-      // exception for SELECTOR and ORDKEYNO width
+      // Skip SELECTOR and ORDKEYNO / ARRAYNO columns during auto-adjustment
       nK := Max( ob:nColumn( "SELECTOR", .T. ), ob:nColumn( cName, .T. ) )
       IF nK > 0
-        aCol := {}
-        FOR nI := nK TO Len( ob:aColumns )
-          IF ob:aColumns[ nI ]:lVisible
-            AAdd( aCol, nI )
-          ENDIF
+         nK++
+         aCol := {}
+         FOR nI := nK TO Len( ob:aColumns )
+            IF ob:aColumns[ nI ]:lVisible
+               AAdd( aCol, nI )
+            ENDIF
          NEXT
       ENDIF
       ob:AdjColumns( aCol )
    ENDIF
-                        
+
 RETURN Nil
+
+/*
+ * Routine: _TBrowse_bInit()
+ *
+ * Purpose:
+ *   Initial callback executed during browse creation to handle control visibility, relational fields, and initialization user blocks.
+ *
+ * Parameters:
+ *   ob - Object - Target TSBrowse control object.
+ *   op - Object - Configuration parameter object.
+ *
+ * Returns:
+ *   NIL - Always returns NIL.
+ *
+ * Side Effects:
+ *   May hide the control, perform field/alias loading, remove relational columns, set record lock options, and execute user blocks.
+ */
 
 STATIC FUNCTION _TBrowse_bInit( ob, op )
    LOCAL a, cCol, nPos
    //
    IF !Empty(op:lHide)  ; ob:Hide()
    ENDIF
-   // set relation to ... into ... OR in ob:bOnDrawLine -> dbGoTo(...)
+   // Load relational fields for specified alias
    IF IsArray(op:aRelation) .AND. Len(op:aRelation) > 0
       nPos := 0
       FOR EACH a IN iif( IsArray(op:aRelation[1]), op:aRelation, {op:aRelation} )
           a := AClone(a)
           IF Len(a) < 6  ; ASize(a, 6)
           ENDIF
-          cCol := a[1]                            // FieldName for relation
-          a[2] := !Empty(a[2])                    // .T. lock area
-          IF Empty(a[3]) .or. Empty(Select(a[3])) // no alias specified for relation
+          cCol := a[1]                            // Field name for relation
+          a[2] := !Empty(a[2])                    // Area lock flag
+          IF Empty(a[3]) .or. Empty(Select(a[3])) // Skip if alias is not defined or invalid
              LOOP
-          ELSEIF Empty(cCol)                      // empty FieldName for relation
+          ELSEIF Empty(cCol)                      // Skip if field name is empty
              LOOP
           ENDIF
           nPos += iif( a[2], 1, 0 )
           ob:LoadFields(!Empty(a[2]), a[4], a[3], a[5], a[6]) 
           IF ob:nColumn(cCol, .T.) > 0
-             ob:DelColumn(cCol)                   // delete FieldName for relation
+             ob:DelColumn(cCol)                   // Delete field column if present
           ENDIF
           DO EVENTS
       NEXT
       IF nPos > 0 ; ob:lRecLockArea := .T.
       ENDIF
    ENDIF
-   // aNumber column, user code block 
+   // Execute custom row numbering callback if defined
    IF IsBlock( op:b_aNumber )
       cCol := iif( ob:lIsDbf, "ORDKEYNO", "ARRAYNO" )
       IF ( nPos := ob:nColumn( cCol, .T. ) ) > 0 
          Eval( op:b_aNumber, ob, op, nPos, cCol )
       ENDIF
    ENDIF
-   // user code block 
+   // Execute default initialization user callback
    IF IsBlock( op:b_Init_Def ) ; Eval( op:b_Init_Def, ob, op ) 
    ENDIF
-   // log out
+   // Execute logging callback if defined
    IF !Empty( op:l_Log_Out ) .AND. IsBlock( op:b_Log_Out )
       Eval( op:b_Log_Out, ob, op, ProcName() ) 
    ENDIF
 
 RETURN Nil
 
+/*
+ * Routine: _TBrowse_bBody()
+ *
+ * Purpose:
+ *   Main configuration callback for managing column visibility, order, super headers, and zebra group highlighting.
+ *
+ * Parameters:
+ *   ob - Object - Target TSBrowse control object.
+ *   op - Object - Configuration parameter object.
+ *
+ * Returns:
+ *   NIL - Always returns NIL.
+ *
+ * Side Effects:
+ *   Deletes, moves, or hides columns, sets super headers, attaches zebra drawing callbacks to bOnDrawLine, and executes user blocks.
+ */
+
 STATIC FUNCTION _TBrowse_bBody( ob, op )
    LOCAL a, blk, aCol, cCol, nCol, nPos
    LOCAL obc := ob:Cargo, oc
-   // user code block 
+   // Execute default body user callback
    IF IsBlock( op:b_Body_Def ) ; Eval( op:b_Body_Def, ob, op ) 
    ENDIF
-   // delete columns
+   // Delete specified columns
    aCol := op:aDelCol ; DEFAULT aCol := op:aDelColumn
                         DEFAULT aCol := op:aDelColumns
    IF IsArray( aCol ) .AND. Len( aCol ) > 0
@@ -886,7 +1039,7 @@ STATIC FUNCTION _TBrowse_bBody( ob, op )
           ENDIF
       NEXT
    ENDIF
-   // move columns
+   // Reposition specified columns
    aCol := op:aMoveCol  ; DEFAULT aCol := op:aMoveColumn
                           DEFAULT aCol := op:aMoveColumns
    IF IsArray(aCol) .AND. Len(aCol) > 0
@@ -900,7 +1053,7 @@ STATIC FUNCTION _TBrowse_bBody( ob, op )
           ENDIF
       NEXT
    ENDIF
-   // hide columns
+   // Hide specified columns
    aCol := op:aHideCol  ; DEFAULT aCol := op:aHideColumn
                           DEFAULT aCol := op:aHideColumns
    IF IsArray( aCol ) .AND. Len( aCol ) > 0
@@ -913,11 +1066,11 @@ STATIC FUNCTION _TBrowse_bBody( ob, op )
       IF Len( a ) > 0 ; ob:HideColumns( a, .T. ) ; DO EVENTS
       ENDIF
    ENDIF
-   // code block for the super title
+   // Execute super header code block if defined
    blk := op:b_Super_Hd ; DEFAULT blk := op:b_Super_Head
    IF IsBlock( blk )    ; Eval( blk, ob, op ) 
    ENDIF
-   // group shading of rows or columns
+   // Configure zebra group row/column shading
    IF !Empty(op:lZebraGroup) .AND. !Empty(op:cZebraGroup) .AND. ob:nColumn(op:cZebraGroup, .T.) > 0
       obc:lZebraGroup := .T.
       obc:nZebraGroup := 1                               // 
@@ -936,15 +1089,15 @@ STATIC FUNCTION _TBrowse_bBody( ob, op )
                  clr := obc:aZebraGroup[ obc:nZebraGroup ]
                  Return clr
                  }
-      IF obc:lZebraLine                                 // all columns
+      IF obc:lZebraLine                                 // Apply zebra background color logic across all columns
          FOR EACH oc IN ob:aColumns
              oc:nClrBack := obc:bZebraGroup_nClrBack
          NEXT
-      ELSE                                              // only column
+      ELSE                                              // Apply zebra background color logic to key column only
          oc := ob:GetColumn(obc:cZebraGroup)
          oc:nClrBack := obc:bZebraGroup_nClrBack
       ENDIF
-      blk := {|obr| // |obr,row|             // before draw line
+      blk := {|obr| // Callback executed prior to drawing each line
               Local obc := obr:Cargo
               Local uVal, nPos, lNo
               uVal := obr:GetValue(obc:cZebraGroup)
@@ -960,17 +1113,34 @@ STATIC FUNCTION _TBrowse_bBody( ob, op )
               ENDIF
               Return Nil
               }
-      // before draw line
+      // Register pre-line-draw callback
       IF IsArray(ob:bOnDrawLine) ; AAdd(ob:bOnDrawLine, blk)
       ELSE                       ; ob:bOnDrawLine := blk            
       ENDIF
    ENDIF
-   // log out
+   // Execute logging callback if defined
    IF !Empty( op:l_Log_Out ) .AND. IsBlock( op:b_Log_Out )
       Eval( op:b_Log_Out, ob, op, ProcName() ) 
    ENDIF
 
 RETURN Nil
+
+/*
+ * Routine: _TBrowse_bAfter()
+ *
+ * Purpose:
+ *   Post-creation callback for setting deleted record background colors and binding mouse click event handlers.
+ *
+ * Parameters:
+ *   ob - Object - Target TSBrowse control object.
+ *   op - Object - Configuration parameter object.
+ *
+ * Returns:
+ *   NIL - Always returns NIL.
+ *
+ * Side Effects:
+ *   Configures column nClrBack code blocks and attaches mouse click callbacks to browse and columns.
+ */
 
 STATIC FUNCTION _TBrowse_bAfter( ob, op )
    LOCAL ni, oc
@@ -987,7 +1157,7 @@ STATIC FUNCTION _TBrowse_bAfter( ob, op )
                       Return nclr
                       }
    ENDIF
-   // mouse click events
+   // Assign mouse click event callbacks
    IF IsBlock(op:bRClicked) ; ob:bRClicked := op:bRClicked
    ENDIF
    IF IsBlock(op:bLClicked) ; ob:bLClicked := op:bLClicked
@@ -1007,38 +1177,55 @@ STATIC FUNCTION _TBrowse_bAfter( ob, op )
        IF IsBlock(op:bFRClicked) ; oc:bFRClicked := op:bFRClicked
        ENDIF      
    NEXT
-   // user code block 
+   // Execute user post-definition callback
    IF IsBlock( op:b_After_Def ) ; Eval( op:b_After_Def, ob, op ) 
    ENDIF
-   // log out
+   // Execute logging callback if defined
    IF !Empty( op:l_Log_Out ) .AND. IsBlock( op:b_Log_Out )
       Eval( op:b_Log_Out, ob, op, ProcName() ) 
    ENDIF
 
 RETURN Nil
 
+/*
+ * Routine: _TBrowse_bEnd()
+ *
+ * Purpose:
+ *   Finalization callback for adjusting column widths, updating scrollbar state, setting focus, and running final logging.
+ *
+ * Parameters:
+ *   ob - Object - Target TSBrowse control object.
+ *   op - Object - Configuration parameter object.
+ *
+ * Returns:
+ *   NIL - Always returns NIL.
+ *
+ * Side Effects:
+ *   Adjusts column layout, resets vertical scrollbar, sets focus to the browse, and executes user finalization callbacks.
+ */
+
 STATIC FUNCTION _TBrowse_bEnd( ob, op )
    LOCAL lEnd := .T., lRet
-   // user code block 
+   // Execute user finalization callback
    IF IsBlock( op:b_End_Def ) 
       IF ( lRet := Eval( op:b_End_Def, ob, op ) ) .AND. IsLogical( lRet )
          lEnd := lRet
       ENDIF
    ENDIF
    IF lEnd
-      // no HScroll but there is SELECTOR
+      // Adjust columns if horizontal scrollbar is disabled and selector present
       IF op:uSelector != NIL .AND. op:lAdjust == NIL .AND. ob:lNoHScroll
          IF HB_ISBLOCK( op:bAdjColumns )
             Eval( op:bAdjColumns, ob, op )
          ENDIF
       ENDIF
-      IF ob:nLen > ob:nRowCount()     // need VScroll
+      IF ob:nLen > ob:nRowCount()     // Reset vertical scrollbar if total records exceed visible row count
          ob:ResetVScroll( .T. )
       ENDIF
       ob:SetNoHoles()
       ob:SetFocus()
    ENDIF
-   // log out
+   // Execute logging callback if defined
    IF !Empty( op:l_Log_Out ) .AND. IsBlock( op:b_Log_Out )
       Eval( op:b_Log_Out, ob, op, ProcName() ) 
    ENDIF

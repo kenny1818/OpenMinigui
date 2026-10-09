@@ -7,182 +7,177 @@
 #include "dbinfo.ch"
 #include "error.ch"
 
-// Constants for network locking operations
+// Locking strategy constant definitions for RDD operations
 #define NET_LOCK_RECORD  1
 #define NET_LOCK_FILE    2
 #define NET_LOCK_APPEND  3
 
-STATIC nNetDelay := 1  // Default network delay in seconds
-STATIC lNetOk := .F.   // Flag indicating success of the last network operation
+STATIC nNetDelay := 1  // Default timeout interval in seconds for locking attempts
+STATIC lNetOk := .F.   // Global success status flag for the most recent network operation
 
 /*
- * STATIC FUNCTION NetLock( nLockingType, lReleaseLocks, nTimeout )
- *
- * Attempts to acquire or release a network lock (record, file, or append).
- *
- * Parameters:
- *   nLockingType (NUMERIC):  Specifies the type of lock to acquire or release.
- *                           Must be one of the NET_LOCK_* constants (NET_LOCK_RECORD, NET_LOCK_FILE, NET_LOCK_APPEND).
- *   lReleaseLocks (LOGICAL): Optional.  Defaults to .F..
- *                           If .T., the function attempts to *release* the lock.
- *                           If .F., the function attempts to *acquire* the lock.
- *                           This parameter is only relevant for NET_LOCK_APPEND.
- *   nTimeout    (NUMERIC):  Optional.  Defaults to nNetDelay.
- *                           The maximum time (in seconds) to wait for the lock to be acquired.
- *
- * Returns:
- *   LOGICAL: .T. if the lock was successfully acquired (or released), .F. otherwise.
+ * Routine: NetLock
  *
  * Purpose:
- *   This function provides a mechanism for implementing network locking in a multi-user environment.
- *   It prevents multiple users from simultaneously modifying the same data, ensuring data integrity.
- *   The function uses a loop to repeatedly attempt to acquire the lock until either the lock is acquired
- *   or the timeout period expires.  The type of lock (record, file, or append) is determined by the nLockingType parameter.
- *   For NET_LOCK_APPEND, the lReleaseLocks parameter controls whether the lock is acquired or released.
+ *   Attempts to acquire or release a database network lock (record lock, file lock,
+ *   or append record) using an automated retry loop until success or timeout.
  *
- * Notes:
- *   The function uses the dbRLock(), FLock(), and dbAppend() functions to perform the actual locking operations.
- *   The HMG_SysWait() function is used to pause execution between lock attempts, preventing excessive CPU usage.
- *   The lNetOk static variable is updated to reflect the success or failure of the lock operation.
- *   The function uses Seconds() for timing, which is more accurate than using seconds.
+ * Parameters:
+ *   nLockingType  (NUMERIC) - Lock mode constant (NET_LOCK_RECORD, NET_LOCK_FILE, or NET_LOCK_APPEND).
+ *   lReleaseLocks (LOGICAL) - Optional. Defaults to .F.
+ *                            For NET_LOCK_RECORD: when .T., passes NIL to clear single record targeting.
+ *                            For NET_LOCK_APPEND: controls unlock flag parameter passed to dbAppend().
+ *   nTimeout      (NUMERIC) - Optional. Maximum retry duration in seconds. Defaults to nNetDelay.
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if lock operation succeeded within timeout period, .F. otherwise.
+ *
+ * Side Effects:
+ *   - Modifies static state variable 'lNetOk' to indicate operation outcome.
+ *   - Calls RDD functions dbRLock(), FLock(), or dbAppend().
+ *   - Calls HMG_SysWait() during retries, yielding CPU time to system message loop.
  */
 STATIC FUNCTION NetLock( nLockingType, lReleaseLocks, nTimeout )
 
    LOCAL lSuccess := .F.
-   LOCAL bLockOperation  // Codeblock to execute for the lock operation
-   LOCAL xLockIdentifier // Identifier for the lock (e.g., record number)
-   LOCAL nStartTime   // Time when the locking attempt started
+   LOCAL bLockOperation  // Evaluation codeblock executing the RDD lock/append call
+   LOCAL xLockIdentifier // Identifier/flag passed to lock execution codeblock
+   LOCAL nStartTime   // Start timestamp in seconds for elapsed timeout tracking
 
    DEFAULT lReleaseLocks TO .F.
    DEFAULT nTimeout TO nNetDelay
 
-   nStartTime := Seconds() // Record the start time
+   nStartTime := Seconds() // Store start timestamp for elapsed time calculation
 
    DO CASE
    CASE nLockingType == NET_LOCK_RECORD
+      // Set target record number or pass NIL for unconstrained lock evaluation
       xLockIdentifier := iif( lReleaseLocks, NIL, RecNo() )
       bLockOperation := {| x | dbRLock( x ) }
    CASE nLockingType == NET_LOCK_FILE
+      // Execute full table lock on active workarea
       bLockOperation := {|| FLock() }
    CASE nLockingType == NET_LOCK_APPEND
+      // Perform record append and evaluate RDD network status
       xLockIdentifier := lReleaseLocks
       bLockOperation := {| x | dbAppend( x ), ! NetErr() }
    OTHERWISE
-      // Invalid lock type.
+      // Fail immediately if lock type constant is unhandled
       RETURN .F.
    ENDCASE
 
-   WHILE ( Seconds() - nStartTime ) < nTimeout // Use Seconds() for more accurate timing
+   // Poll lock execution until lock succeeds or timeout period expires
+   WHILE ( Seconds() - nStartTime ) < nTimeout
 
       IF Eval( bLockOperation, xLockIdentifier )
          lSuccess := .T.
          EXIT
       ELSE
+         // Pause execution briefly to reduce CPU load and process GUI events
          HMG_SysWait( .25 )
       ENDIF
 
    ENDDO
 
-   lNetOk := lSuccess // Set lNetOk based on the loop's outcome
+   lNetOk := lSuccess // Store operation result for NetError() queries
 
 RETURN lSuccess
 
 /*
- * STATIC FUNCTION NetModifyRecord( bOperation, cOperationName )
- *
- * Executes a database operation (e.g., delete, recall) on the current record with network locking.
- *
- * Parameters:
- *   bOperation     (CODEBLOCK): A codeblock containing the database operation to perform (e.g., {|| dbDelete() }).
- *   cOperationName (CHARACTER): A string describing the operation being performed (e.g., "DELETE", "RECALL").
- *
- * Returns:
- *   LOGICAL: .T. if the operation was successful, .F. otherwise.
+ * Routine: NetModifyRecord
  *
  * Purpose:
- *   This function simplifies the process of performing database operations that require network locking.
- *   It encapsulates the locking logic, the database operation, and error handling into a single function.
- *   This reduces code duplication and improves code maintainability.
- *   It first attempts to acquire a record lock using NetLock(NET_LOCK_RECORD).
- *   If the lock is acquired successfully, the codeblock bOperation is evaluated.
- *   After the operation is performed, the function checks for errors using NetErr().
- *   If no errors occurred, the changes are committed to the database using dbCommit().
- *   If an error occurred, an alert message is displayed using HMG_Alert().
+ *   Encapsulates database record updates (such as record deletion or recall) within a
+ *   network-safe record lock context, ensuring error verification and commit flushing.
  *
- * Notes:
- *   The function assumes that the database is already open and positioned to the correct record.
- *   The cOperationName parameter is used for displaying an error message if the operation fails.
+ * Parameters:
+ *   bOperation     (CODEBLOCK) - Database operation block to execute once lock is held.
+ *   cOperationName (CHARACTER) - Descriptive name of the operation used in user alerts upon failure.
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if record lock was secured and modification succeeded, .F. otherwise.
+ *
+ * Side Effects:
+ *   - Secures record lock on active workarea.
+ *   - Calls dbSkip(0) and dbCommit() to flush database buffers to disk.
+ *   - Displays an HMG_Alert dialog box if an RDD network error occurs.
  */
 STATIC FUNCTION NetModifyRecord( bOperation, cOperationName )
 
    LOCAL lSuccess := .F.
 
+   // Attempt record lock acquisition before executing modification codeblock
    IF NetLock( NET_LOCK_RECORD )
       Eval( bOperation )
       lSuccess := .T.
    ENDIF
 
-   IF ! NetErr() // Check for errors BEFORE committing
-      dbSkip( 0 )
-      dbCommit()
+   // Verify network integrity before committing changes to physical storage
+   IF ! NetErr()
+      dbSkip( 0 ) // Flush current workarea record buffer
+      dbCommit()  // Write buffer updates to disk
    ELSE
+      // Display modal alert dialog informing user of failure
       HMG_Alert( "Failed to " + cOperationName + " Record -> " + hb_ntos( RecNo() ) )
    ENDIF
 
 RETURN lSuccess
 
 /*
- * FUNCTION NetDelete()
- *
- * Deletes the current record with network locking.
- *
- * Returns:
- *   LOGICAL: .T. if the delete was successful, .F. otherwise.
+ * Routine: NetDelete
  *
  * Purpose:
- *   This function provides a safe way to delete records in a multi-user environment by ensuring that
- *   only one user can delete a record at a time. It uses the NetModifyRecord function to handle the
- *   locking and deletion process.
+ *   Deletes the current database record safely in a multi-user network environment.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if record was successfully locked and marked for deletion, .F. otherwise.
+ *
+ * Side Effects:
+ *   - Locks active record, calls dbDelete(), and flushes changes to disk.
+ *   - Displays alert message if a network error is detected.
  */
 FUNCTION NetDelete()
 
 RETURN NetModifyRecord( {|| dbDelete() }, "DELETE" )
 
 /*
- * FUNCTION NetRecall()
- *
- * Recalls the current record with network locking.
- *
- * Returns:
- *   LOGICAL: .T. if the recall was successful, .F. otherwise.
+ * Routine: NetRecall
  *
  * Purpose:
- *   This function provides a safe way to recall (undelete) records in a multi-user environment by ensuring that
- *   only one user can recall a record at a time. It uses the NetModifyRecord function to handle the
- *   locking and recall process.
+ *   Recalls (un-deletes) the current database record safely in a multi-user network environment.
+ *
+ * Parameters:
+ *   None
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if record was successfully locked and recalled, .F. otherwise.
+ *
+ * Side Effects:
+ *   - Locks active record, calls dbRecall(), and flushes changes to disk.
+ *   - Displays alert message if a network error is detected.
  */
 FUNCTION NetRecall()
 
 RETURN NetModifyRecord( {|| dbRecall() }, "RECALL" )
 
 /*
- * FUNCTION NetRecLock( nTimeout )
- *
- * Attempts to acquire a record lock.
- *
- * Parameters:
- *   nTimeout (NUMERIC): Optional. Defaults to nNetDelay.
- *                       The maximum time (in seconds) to wait for the lock to be acquired.
- *
- * Returns:
- *   LOGICAL: .T. if the lock was successfully acquired, .F. otherwise.
+ * Routine: NetRecLock
  *
  * Purpose:
- *   This function provides a convenient way to acquire a record lock. It calls the NetLock function
- *   with the NET_LOCK_RECORD constant to perform the actual locking operation.
+ *   Acquires a record lock on the current database record with timeout handling.
  *
- * Notes:
- *   If the timeout period expires before the lock can be acquired, the function returns .F..
+ * Parameters:
+ *   nTimeout (NUMERIC) - Optional. Maximum wait duration in seconds. Defaults to nNetDelay.
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if record lock was granted within timeout, .F. otherwise.
+ *
+ * Side Effects:
+ *   - Modifies static state variable 'lNetOk'.
+ *   - Applies record lock on active database workarea via dbRLock().
  */
 FUNCTION NetRecLock( nTimeout )
 
@@ -191,23 +186,20 @@ FUNCTION NetRecLock( nTimeout )
 RETURN NetLock( NET_LOCK_RECORD, , nTimeout )
 
 /*
- * FUNCTION NetFileLock( nTimeout )
- *
- * Attempts to acquire a file lock.
- *
- * Parameters:
- *   nTimeout (NUMERIC): Optional. Defaults to nNetDelay.
- *                       The maximum time (in seconds) to wait for the lock to be acquired.
- *
- * Returns:
- *   LOGICAL: .T. if the lock was successfully acquired, .F. otherwise.
+ * Routine: NetFileLock
  *
  * Purpose:
- *   This function provides a convenient way to acquire a file lock. It calls the NetLock function
- *   with the NET_LOCK_FILE constant to perform the actual locking operation.
+ *   Acquires an exclusive file lock on the active database table with timeout handling.
  *
- * Notes:
- *   If the timeout period expires before the lock can be acquired, the function returns .F..
+ * Parameters:
+ *   nTimeout (NUMERIC) - Optional. Maximum wait duration in seconds. Defaults to nNetDelay.
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if file lock was granted within timeout, .F. otherwise.
+ *
+ * Side Effects:
+ *   - Modifies static state variable 'lNetOk'.
+ *   - Locks active database table via FLock().
  */
 FUNCTION NetFileLock( nTimeout )
 
@@ -216,29 +208,25 @@ FUNCTION NetFileLock( nTimeout )
 RETURN NetLock( NET_LOCK_FILE, , nTimeout )
 
 /*
- * FUNCTION NetAppend( nTimeout, lReleaseLocks )
- *
- * Appends a blank record with network locking.
- *
- * Parameters:
- *   nTimeout    (NUMERIC):  Optional. Defaults to nNetDelay.
- *                           The maximum time (in seconds) to wait for the lock to be acquired.
- *   lReleaseLocks (LOGICAL): Optional. Defaults to .T..
- *                           If .T., the function releases the lock after appending.
- *                           If .F., the function keeps the lock after appending.
- *
- * Returns:
- *   LOGICAL: .T. if the append was successful, .F. otherwise.
+ * Routine: NetAppend
  *
  * Purpose:
- *   This function provides a safe way to append records in a multi-user environment by ensuring that
- *   only one user can append a record at a time. It calls the NetLock function with the
- *   NET_LOCK_APPEND constant to perform the actual locking and appending operation.
- *   After appending, the function optionally releases the lock based on the lReleaseLocks parameter.
+ *   Appends a new blank record to the current database table in a network-safe manner.
  *
- * Notes:
- *   Setting lReleaseLocks to .F. can be useful if you need to perform additional operations on the
- *   newly appended record immediately after appending it.
+ * Parameters:
+ *   nTimeout      (NUMERIC) - Optional. Maximum wait duration in seconds. Defaults to nNetDelay.
+ *   lReleaseLocks (LOGICAL) - Optional. Defaults to .T.
+ *                            If .T., unlocks existing locks during append.
+ *                            If .F., retains existing locks during append.
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if record append succeeded within timeout, .F. otherwise.
+ *
+ * Side Effects:
+ *   - Temporarily sets index controlling order to 0 during append to avoid key collision overhead,
+ *     restoring original index order afterwards.
+ *   - Modifies static state variable 'lNetOk'.
+ *   - Modifies database workarea state via dbAppend().
  */
 FUNCTION NetAppend( nTimeout, lReleaseLocks )
 
@@ -248,10 +236,12 @@ FUNCTION NetAppend( nTimeout, lReleaseLocks )
    DEFAULT nTimeout TO nNetDelay
    DEFAULT lReleaseLocks TO .T.
 
-   cOrd := ordSetFocus( 0 ) // set order to 0 to append
+   // Temporarily clear controlling index order to optimize append performance
+   cOrd := ordSetFocus( 0 )
 
    lSuccess := NetLock( NET_LOCK_APPEND, lReleaseLocks, nTimeout )
 
+   // Restore controlling index order if one was previously active
    IF ! Empty( cOrd )
       ordSetFocus( cOrd )
    ENDIF
@@ -259,74 +249,66 @@ FUNCTION NetAppend( nTimeout, lReleaseLocks )
 RETURN lSuccess
 
 /*
- * FUNCTION IsLocked( nRecId )
- *
- * Checks if a record is currently locked.
- *
- * Parameters:
- *   nRecId (NUMERIC): Optional. Defaults to the current record (RecNo()).
- *                     The record number to check.
- *
- * Returns:
- *   LOGICAL: .T. if the record is locked, .F. otherwise.
+ * Routine: IsLocked
  *
  * Purpose:
- *   This function allows you to determine whether a specific record is currently locked by another user.
- *   It can be used to prevent users from attempting to modify a record that is already being modified.
- *   It retrieves a list of locked records using dbRLockList() and then searches for the specified record number.
+ *   Determines whether a specific record (or current record) is locked in active workarea.
  *
- * Notes:
- *   The function relies on the dbRLockList() function to provide an accurate list of locked records.
- *   The performance of the function may be affected if the database contains a large number of locked records.
+ * Parameters:
+ *   nRecId (NUMERIC) - Optional. Record number to inspect. Defaults to RecNo().
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if record is present in active workarea lock list, .F. otherwise.
+ *
+ * Side Effects:
+ *   None.
  */
 FUNCTION IsLocked( nRecId )
 
    DEFAULT nRecID TO RecNo()
 
+// Search active record lock list array retrieved from database driver
 RETURN AScan( dbRLockList(), {| n | n == nRecID } ) > 0
 
 /*
- * FUNCTION NetError()
- *
- * Returns the status of the last network operation.
- *
- * Returns:
- *   LOGICAL: .T. if the last operation failed, .F. otherwise.
+ * Routine: NetError
  *
  * Purpose:
- *   This function provides a simple way to check if the last network locking operation (e.g., NetLock, NetAppend)
- *   was successful. It returns the value of the lNetOk static variable, which is set by the NetLock function.
- *   This allows you to implement error handling logic based on the success or failure of network operations.
+ *   Queries the failure status of the most recent network locking or append operation.
  *
- * Notes:
- *   The function only reflects the status of the last network operation.
+ * Parameters:
+ *   None
+ *
+ * Return Value:
+ *   LOGICAL - Returns .T. if last network operation failed, .F. if it succeeded.
+ *
+ * Side Effects:
+ *   None.
  */
 FUNCTION NetError()
 
 RETURN ! lNetOk
 
 /*
- * FUNCTION SetnNetDelay( nSeconds )
- *
- * Sets the default network delay.
- *
- * Parameters:
- *   nSeconds (NUMERIC): Optional. If provided, sets the new network delay in seconds.
- *                       If NIL, the delay is not changed.
- *
- * Returns:
- *   NUMERIC: The previous network delay.
+ * Routine: SetNetDelay
  *
  * Purpose:
- *   This function allows you to adjust the default network delay, which is the maximum time that the
- *   application will wait for a network lock to be acquired.  Increasing the delay may be necessary
- *   in environments with slow or unreliable networks.  The function returns the previous delay value,
- *   allowing you to restore the original delay if needed.
+ *   Configures or queries default network locking retry delay duration.
+ *
+ * Parameters:
+ *   nSeconds (NUMERIC) - Optional. New delay duration in seconds. If omitted, value is unchanged.
+ *
+ * Return Value:
+ *   NUMERIC - Returns previous network delay duration setting in seconds.
+ *
+ * Side Effects:
+ *   - Updates static variable 'nNetDelay' when nSeconds is supplied.
  */
 FUNCTION SetNetDelay( nSeconds )
 
    LOCAL nOldDelay := nNetDelay
 
+   // Assign new timeout value if argument was passed
    IF nSeconds != NIL
       nNetDelay := nSeconds
    ENDIF

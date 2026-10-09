@@ -168,6 +168,7 @@
 /* Value for rolling one detent */
 #define WHEEL_DELTA                     120
 #define GET_WHEEL_DELTA_WPARAM(wParam)  (HIWORD(wParam))
+#define WHEEL_PAGESCROLL                0xFFFFFFFF
 #endif /* WINVER >= 0x0400 */
 
 // Generic WM_NOTIFY calls
@@ -267,7 +268,7 @@
 #define WS_MINIMIZE     0x20000000
 #define WS_CHILD	0x40000000
 #define WS_POPUP        0x80000000
-//
+
 #define WS_MAXIMIZEBOX  0x00010000
 #define WS_MINIMIZEBOX  0x00020000
 #define WS_TILED        WS_OVERLAPPED

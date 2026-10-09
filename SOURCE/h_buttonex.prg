@@ -695,7 +695,7 @@ FUNCTION OwnButtonPaint( pdis )
 
    SelectObject( hDC, hOldFont )
    SetBkMode( hDC, oldBkMode )
-   SetTextColor( hDC, oldTextColor )
+   SetTextColor( hDC, GetRed( oldTextColor ), GetGreen( oldTextColor ), GetBlue( oldTextColor ) )
 
 RETURN 1
 

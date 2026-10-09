@@ -36,4 +36,9 @@ Set MG_HRB=%hB%
 ::/*FIM*/
 ::=======================================================================
 call CriaLibsAll.bat
+if errorlevel 1 (
+    echo BUILD FALHOU - veja LogGeral.log
+) else (
+    echo BUILD OK
+)
 pause

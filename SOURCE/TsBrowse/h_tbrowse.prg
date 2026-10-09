@@ -941,7 +941,7 @@ RETURN oBrw
       Ralph del Castillo
       Daniel Andrade
       Yamil Bracho
-      Victor Manuel Tomás (VikThor)
+      Victor Manuel Tomà± (VikThor)
       FiveTechSoft (original classes)
 
       Many thanks to all of them.
@@ -950,7 +950,7 @@ RETURN oBrw
 
       Manuel Mercado.  July 15th, 2004
 
-   ¡ Aquí vamos ! | ¡ Here we go !...  */
+    AquëŸ¶amos ! |  Here we go !...  */
 
 // ----------------------------------------------------------------------------//
 
@@ -1203,9 +1203,9 @@ CLASS TSBrowse FROM TControl
    DATA nClrSeleBack, nClrSeleFore // selected cell no focused
    DATA nClrOrdeBack, nClrOrdeFore // order control column colors
    DATA nClrSpcHdBack, nClrSpcHdFore, nClrSpcHdActive // special headers colors
-   DATA nClrSelectorHdBack // special selector header background color
-   DATA nClrSelectorFtBack // special selector footer background color
-   DATA lClrSelectorHdBack AS LOGICAL INIT .T. // special selector header background color
+   DATA nClrSelectorHdBack // specialselector header background color
+   DATA nClrSelectorFtBack // specialselector footer background color
+   DATA lClrSelectorHdBack AS LOGICAL INIT .T. // specialselector header background color
    DATA nClrLine // grid line color
    DATA nColOrder AS NUMERIC // compatibility with TCBrowse
    DATA nColPos AS NUMERIC INIT 0 // grid column position
@@ -1643,8 +1643,8 @@ CLASS TSBrowse FROM TControl
 #endif
 
    METHOD FilterData( cFilter, lBottom, lFocus )
-   METHOD FilterFTS( cFind, lUpper, lBottom, lFocus, lAll )
-   METHOD FilterFTS_Line( cFind, lUpper, lAll )
+   METHOD FilterFTS( cFind, lUpper, lBottom, lFocus, lAll, cTokens )
+   METHOD FilterFTS_Line( cFind, lUpper, lAll, cTokens )
    METHOD CalcTotal( cTotal, cNoTotal, lDraw, lPicture )
 
    METHOD SeekRec( xVal, lSoftSeek, lFindLast, nRowPos )
@@ -6735,7 +6735,7 @@ RETURN NIL
 * ============================================================================
 * METHOD TSBrowse:ExcelOle() Version 9.0 Nov/30/2009
 // Requires TOleAuto class
-// Many thanks to Victor Manuel Tomás for the core of this method
+// Many thanks to Victor Manuel Tomà± for the core of this method
 * ============================================================================
 
 METHOD ExcelOle( cXlsFile, lActivate, hProgress, cTitle, hFont, lSave, bExtern, aColSel, bPrintRow ) CLASS TSBrowse
@@ -14291,12 +14291,12 @@ RETURN NIL
 * METHOD TSBrowse:FilterFTS()  by SergKis
 * ============================================================================
 
-METHOD FilterFTS( cFind, lUpper, lBottom, lFocus, lAll ) CLASS TSBrowse
+METHOD FilterFTS( cFind, lUpper, lBottom, lFocus, lAll, cTokens ) CLASS TSBrowse
 
    LOCAL nLen := 0, cAlias := ::cAlias, ob := Self
    LOCAL aArray, aLine, nLine, nCol, oCol, xVal, lRet
    LOCAL nAtPos, nLastPos, aFind, nFind := 0
-   DEFAULT lUpper := .T., lAll := .F.
+   DEFAULT lUpper := .T., lAll := .F., cTokens := "~` "
 
    IF ! HB_ISCHAR( cFind )
       cFind := ""
@@ -14304,16 +14304,16 @@ METHOD FilterFTS( cFind, lUpper, lBottom, lFocus, lAll ) CLASS TSBrowse
       cFind := Upper( cFind )
    ENDIF
 
-   IF Left( cFind, 1 ) == " " .AND. Len( cFind ) > 1
-      aFind := hb_ATokens( SubStr( cFind, 2 ) )
+   IF Left( cFind, 1 ) $ cTokens .AND. Len( cFind ) > 1
+      aFind := hb_ATokens( SubStr( cFind, 2 ), Left( cFind, 1 ) )
    ELSE
       aFind := { cFind }
    ENDIF
 
    IF ::lIsDbf
       IF ! Empty( cFind )
-         ( cAlias )->( dbSetFilter( {|| ob:FilterFTS_Line( cFind, lUpper, lAll, ob ) }, ;
-            "ob:FilterFTS_Line( cFind, lUpper, lAll, ob)" ) )
+         ( cAlias )->( dbSetFilter( {|| ob:FilterFTS_Line( cFind, lUpper, lAll, cTokens, ob ) }, ;
+            "ob:FilterFTS_Line( cFind, lUpper, lAll, cTokens, ob)" ) )
       ELSE
          ( cAlias )->( dbClearFilter() )
       ENDIF
@@ -14409,13 +14409,13 @@ RETURN nFind
 * METHOD TSBrowse:FilterFTS_Line()  by SergKis
 * ============================================================================
 
-METHOD FilterFTS_Line( cFind, lUpper, lAll ) CLASS TSBrowse
+METHOD FilterFTS_Line( cFind, lUpper, lAll, cTokens ) CLASS TSBrowse
 
    LOCAL nCol, oCol, xVal, lRet := .F., aFind
-   DEFAULT lUpper := .T., lAll := .F.
+   DEFAULT lUpper := .T., lAll := .F., cTokens := "~` "
 
-   IF Left( cFind, 1 ) == " "
-      aFind := hb_ATokens( substr( cFind, 2 ) )
+   IF Left( cFind, 1 ) $ cTokens .AND. Len( cFind ) > 1
+      aFind := hb_ATokens( SubStr( cFind, 2 ), Left( cFind, 1 ) )
    ELSE
       aFind := { cFind }
    ENDIF

@@ -42,7 +42,7 @@
 
     "HWGUI"
     Copyright 2001-2021 Alexander S.Kresin <alex@kresin.ru>
- ---------------------------------------------------------------------------*/
+---------------------------------------------------------------------------*/
 
 // Set compatibility for Windows/Internet Explorer features at version 5.01
 #define _WIN32_IE 0x0501
@@ -200,10 +200,15 @@ HB_FUNC( SYSTEMPARAMETERSINFO )
 {
    UINT  uiAction = hmg_par_UINT( 1 );
    UINT  uiParam = hmg_par_UINT( 2 );
-   VOID  *pParam = ( VOID * ) hb_parc( 3 );
+   VOID  *pParam = HB_ISNUM( 3 ) ? ( VOID * ) hb_parptr( 3 ) : NULL;
    UINT  uiFlags = hmg_par_UINT( 4 );
 
-   hb_retl( SystemParametersInfo( uiAction, uiParam, pParam, uiFlags ) );
+   hb_retl( SystemParametersInfo( uiAction, uiParam, &pParam, uiFlags ) );
+
+   if( HB_ISNUM( 3 ) && HB_ISBYREF( 3 ) )
+   {
+      hb_stornint( ( HB_PTRUINT ) pParam, 3 );
+   }
 }
 
 /*

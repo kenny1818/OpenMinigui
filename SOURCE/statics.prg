@@ -11,41 +11,42 @@
  * FUNCTION _SetGetNamesList( cName, nIndex, lDelete )
  *-----------------------------------------------------------------------------*
  * Purpose:
- *   This function manages a list of names (strings) stored in a static object.
- *   It allows getting, setting, and deleting names from the list.  The list is
- *   implemented using an oHmgData() object, which acts as a dictionary.
+ *   Manages an internal key-value collection of HMG Extended control names using
+ *   a persistent dynamic data object dictionary.
  *
  * Parameters:
- *   cName   - The name (string) to get, set, or delete.
- *   nIndex  - The index (numeric) associated with the name when setting.  Ignored when getting or deleting.
- *   lDelete - A logical value indicating whether to delete the name (TRUE) or set it to NIL (FALSE).
+ *   cName   (C) Symbol name string to query, insert, or remove from registry.
+ *   nIndex  (N) Associated numeric index or control identifier to register.
+ *   lDelete (L) Flag indicating deletion action (.T. deletes key, .F. clears value).
  *
  * Return Value:
- *   If only cName is passed (PCount() == 1), returns the value associated with the name.
- *   Otherwise, returns the internal static _HMG_NAMESLIST object.
+ *   (U) When PCount() == 1, returns the value stored for cName (0 if not found).
+ *   (O) Otherwise, returns the internal static _HMG_NAMESLIST oHmgData object.
  *
- * Notes:
- *   - The _HMG_NAMESLIST is a static variable, so its value persists between calls.
- *   - oHmgData() is assumed to be a function that creates an object suitable for storing key-value pairs.
- *   - This function is only compiled if _NAMES_LIST_ is defined.
- */
+ * Side Effects:
+ *   Initializes and mutates static state variable _HMG_NAMESLIST.
+ *-----------------------------------------------------------------------------*/
 FUNCTION _SetGetNamesList( cName, nIndex, lDelete )
    STATIC _HMG_NAMESLIST
 
+   // Lazy-initialize static dictionary object on first call
    IF HB_ISNIL( _HMG_NAMESLIST )
       _HMG_NAMESLIST := oHmgData()
    ENDIF
 
    IF PCount() == 1
 
+      // Getter mode: Retrieve stored numeric ID associated with name key
       RETURN _HMG_NAMESLIST:Get( cName, 0 )
 
    ELSEIF PCount() == 2
 
+      // Setter mode: Map control name key to numeric index
       _HMG_NAMESLIST:Set( cName, nIndex )
 
    ELSEIF PCount() == 3
 
+      // Deletion mode: Conditionally remove key or clear payload to NIL
       IF lDelete
          _HMG_NAMESLIST:Del( cName )
       ELSE
@@ -62,26 +63,22 @@ RETURN _HMG_NAMESLIST
  * FUNCTION _SetGetGlobal( cVarName, xNewValue, ... )
  *-----------------------------------------------------------------------------*
  * Purpose:
- *   This function manages a list of "global" variables stored in a static object.
- *   It allows getting, setting, and deleting variables from the list.  The list is
- *   implemented using an oHmgData() object, which acts as a dictionary.  This function
- *   provides a way to simulate global variables within the HMG environment.
+ *   Provides dynamic runtime access to application-wide pseudo-global variables
+ *   encapsulated within a persistent static data dictionary.
  *
  * Parameters:
- *   cVarName  - The name (string) of the variable to get, set, or delete.
- *   xNewValue - The new value to assign to the variable when setting.
- *   ...       - (xHarbour only) Variable number of parameters passed to the function.
+ *   cVarName  (C) Variable identifier string to access, modify, or remove.
+ *   xNewValue (U) New value payload to store in pseudo-global space.
+ *   ...       (U) Variadic arguments parameter list (for compiler portability).
  *
  * Return Value:
- *   If only cVarName is passed (PCount() == 1), returns the current value of the variable.
- *   If no parameters are passed (PCount() == 0), returns the internal static _HMG_STATIC object.
- *   If setting a value, returns the *old* value of the variable.
+ *   (U) PCount() == 0: Returns the internal static container instance (_HMG_STATIC).
+ *   (U) PCount() == 1: Returns current variable value stored under cVarName (NIL if missing).
+ *   (U) PCount() >= 2: Returns the previous value stored prior to modification.
  *
- * Notes:
- *   - The _HMG_STATIC is a static variable, so its value persists between calls.
- *   - oHmgData() is a function that creates an object suitable for storing key-value pairs.
- *   - The xHarbour version uses hb_AParams() to handle variable arguments.
- */
+ * Side Effects:
+ *   Mutates internal static state variable _HMG_STATIC.
+ *-----------------------------------------------------------------------------*/
 #ifndef __XHARBOUR__
 FUNCTION _SetGetGlobal( cVarName, xNewValue, ... )
 #else
@@ -90,6 +87,7 @@ FUNCTION _SetGetGlobal( ... )
    LOCAL xOldValue
 
 #ifdef __XHARBOUR__
+   // Unpack variadic parameter list under xHarbour compiler architecture
    LOCAL cVarName, xNewValue
    LOCAL aParams := hb_AParams()
    LOCAL nParams := Len( aParams )
@@ -98,6 +96,7 @@ FUNCTION _SetGetGlobal( ... )
    STATIC _HMG_STATIC
 
 #ifdef __XHARBOUR__
+   // Extract target variable name and value from xHarbour parameter array
    IF nParams > 1
       cVarName := aParams[ 1 ]
       xNewValue := aParams[ 2 ]
@@ -105,20 +104,26 @@ FUNCTION _SetGetGlobal( ... )
       cVarName := aParams[ 1 ]
    ENDIF
 #endif
+   // Lazy-initialize dynamic memory object container
    IF HB_ISNIL( _HMG_STATIC )
       _HMG_STATIC := oHmgData()
    ENDIF
 
+   // Perform operational action based on passed argument count
    SWITCH PCount()
    CASE 0
+      // Return container instance reference
       RETURN _HMG_STATIC
    CASE 1
+      // Retrieve stored global value (or NIL if undefined)
       RETURN _HMG_STATIC:Get( cVarName, NIL )
    CASE 2
+      // Save current value and assign new value
       xOldValue := _HMG_STATIC:Get( cVarName, NIL )
       _HMG_STATIC:Set( cVarName, xNewValue )
       EXIT
    CASE 3
+      // Remove named pseudo-global entry from dictionary
       _HMG_STATIC:Del( cVarName )
       EXIT
    ENDSWITCH
@@ -129,29 +134,23 @@ RETURN xOldValue
  * FUNCTION _AddNewGlobal( cVarName, xValue )
  *-----------------------------------------------------------------------------*
  * Purpose:
- *   This function adds a new "global" variable to the application.  It first checks
- *   if the variable already exists using _SetGetGlobal(). If it doesn't exist, it
- *   declares a STATIC variable with the given name and value.  This allows for
- *   dynamic creation of static variables at runtime.
+ *   Dynamically registers a new pseudo-global variable in application scope if
+ *   it has not already been created in the dynamic global container.
  *
  * Parameters:
- *   cVarName - The name (string) of the new global variable.
- *   xValue   - The initial value of the new global variable.
+ *   cVarName (C) Symbol identifier of the new global variable to register.
+ *   xValue   (U) Initial value assignment for the variable.
  *
  * Return Value:
- *   Returns the value of the newly created (or existing) global variable, obtained
- *   through a call to _SetGetGlobal().
+ *   (U) Value of the variable retrieved from _SetGetGlobal().
  *
- * Notes:
- *   - This function relies on the Harbour compiler's ability to create static
- *     variables dynamically using the STATIC &cVarName AS GLOBAL VALUE xValue syntax.
- *   - The & symbol is used for macro substitution, allowing the variable name to be
- *     dynamically inserted into the STATIC declaration.
- */
+ * Side Effects:
+ *   Executes dynamic macro compilation statement registering static variable scope.
+ *-----------------------------------------------------------------------------*/
 FUNCTION _AddNewGlobal( cVarName, xValue )
-   // If cVarName not found, then ...
+   // Verify whether specified global symbol already exists in runtime memory
    IF _SetGetGlobal( cVarName ) == NIL
-      // Add a new variable in the Pseudo-Variable List
+      // Macro-expand dynamic static variable declaration into static scope
       STATIC &cVarName AS GLOBAL VALUE xValue
    ENDIF
 
@@ -161,45 +160,46 @@ RETURN _SetGetGlobal( cVarName )
  * FUNCTION CheckStatic()
  *-----------------------------------------------------------------------------*
  * Purpose:
- *   This function iterates through all static variables defined in the application
- *   and logs their information to a file.  It's primarily a debugging tool to
- *   inspect the contents of static variables.
+ *   Diagnostic utility that inspects all active HVM static variable slots and
+ *   outputs their structure and values to a text log file ("checkstatic.txt").
  *
  * Parameters:
  *   None
  *
  * Return Value:
- *   NIL
+ *   (U) NIL
  *
- * Notes:
- *   - It uses _SetGetLogFile() and _LogFile() to manage the log file.
- *   - nStatics() and Static(n) are used to retrieve the number of static variables
- *     and the value of the nth static variable, respectively.
- *   - Scan() is a recursive function used to traverse and log the contents of
- *     complex data structures (arrays, objects) stored in static variables.
- */
+ * Side Effects:
+ *   Creates or overwrites log file "checkstatic.txt" in startup directory.
+ *   Iterates through low-level Harbour Virtual Machine static variable table.
+ *-----------------------------------------------------------------------------*/
 FUNCTION CheckStatic()
    LOCAL cInfo := ""
    LOCAL nCnt := 0
    LOCAL n
 
+   // Initialize log file target path in current startup folder
    _SetGetLogFile( GetStartUpFolder() + hb_ps() + "checkstatic.txt" )
    FErase( _SetGetLogFile() )
 
+   // Write diagnostic report header block
    cInfo += "Statics variables:" + CRLF
    cInfo += "=================="
    _LogFile( .F., cInfo )
 
+   // Scan active static slots exposed by Harbour Virtual Machine debug interface
    FOR n = 1 TO nStatics()
       if ! Empty( Static( n ) )
          cInfo := CRLF
          cInfo += hb_ntos( n ) + Replicate( "-", 55 ) + "> "
          _LogFile( .F., cInfo )
+         // Recursively inspect elements contained in active static variable
          Scan( Static( n ) )
          nCnt++
       ENDIF
    NEXT
 
+   // Format summary footer output with total active count and binary path
    cInfo := CRLF
    cInfo += Replicate( "-", 59 ) + "> "
    _LogFile( .F., cInfo )
@@ -214,27 +214,20 @@ RETURN NIL
  * STATIC FUNCTION Scan( u, cData )
  *-----------------------------------------------------------------------------*
  * Purpose:
- *   This recursive function scans a variable and logs its type, value, and
- *   contents to a log file.  It's used by CheckStatic() to inspect the contents
- *   of static variables, especially complex data structures like arrays and objects.
+ *   Recursively traverses variable contents (primitives, arrays, objects) and
+ *   writes type descriptions and values to the diagnostic log file.
  *
  * Parameters:
- *   u     - The variable to scan.
- *   cData - An optional string containing additional data to log (e.g., the name
- *           of the variable being scanned).
+ *   u     (U) Variable instance or element to inspect and format.
+ *   cData (C) Optional prefix string describing context/label (default: "").
  *
  * Return Value:
- *   NIL
+ *   (U) NIL
  *
- * Notes:
- *   - ValType() returns the data type of a variable as a string (e.g., "A" for array,
- *     "C" for character, "N" for numeric).
- *   - cValToChar() converts a variable to a character string representation.
- *   - The function handles nested arrays and objects recursively, but limits the
- *     recursion depth to 50 to prevent stack overflows.
- *   - DoEvents() is called periodically to allow the application to remain responsive
- *     during the scanning process.
- */
+ * Side Effects:
+ *   Outputs diagnostic strings to log file via _LogFile().
+ *   Calls DoEvents() to pump Win32 message queue during deep traversal.
+ *-----------------------------------------------------------------------------*/
 STATIC FUNCTION Scan( u, cData )
    LOCAL cType := ValType( u )
    LOCAL n
@@ -244,30 +237,36 @@ STATIC FUNCTION Scan( u, cData )
 
    DEFAULT cData := ""
 
+   // Process pending GUI events to maintain UI responsiveness during inspection
    DoEvents()
 
+   // Abort deep recursion to prevent application stack overflow
    IF nNested > 50
       cInfo += CRLF
       cInfo += Space( nNested ) + "Break on 50 nested loops"
       cInfo += CRLF
       _LogFile( .T., cInfo )
    ELSE
-      // We write the data and its containts
+      // Log data type character and contextual description tag
       _LogFile( .F., CRLF + Space( nNested ) + cType + " " + cData )
+      // Output scalar variable values directly
       IF .NOT. cType $ "UAO"
          _LogFile( .F., " " + cValToChar( u ) )
       ENDIF
 
+      // Output size metadata for composite structures (Arrays/Objects)
       IF cType $ "AO"
          _LogFile( .F., " (Len = " + hb_ntos( Len( u ) ) + ")" )
       ENDIF
 
+      // Traversal logic for array structures
       IF cType == "A"
 
          FOR n := 1 TO Len( u )
 
             DoEvents()
 
+            // Guard against circular self-references within arrays
             IF ValType( u[ n ] ) == ValType( u ) .AND. u[ n ] == u
                _LogFile( .T., " Direct reference to its container" )
             ELSE
@@ -284,30 +283,28 @@ STATIC FUNCTION Scan( u, cData )
 
 RETURN NIL
 
+// Map low-level HVM VM variable debug functions for non-xHarbour environment
 #ifndef __XHARBOUR__
 #translate HB_DBG_VMVARSLEN   =>  __dbgVMVarSLen
 #translate HB_DBG_VMVARSLIST  =>  __dbgVMVarSList
 #translate HB_DBG_VMVARSGET   =>  __dbgVMVarSGet
 #endif
+
 /*-----------------------------------------------------------------------------*
  * STATIC FUNCTION nStatics()
  *-----------------------------------------------------------------------------*
  * Purpose:
- *   This function returns the number of static variables defined in the application.
- *   It uses the HB_DBG_VMVARSLEN() function (or its translated equivalent in
- *   non-xHarbour environments) to retrieve this information from the Harbour
- *   virtual machine.
+ *   Queries the Harbour Virtual Machine debug API to get total static variable count.
  *
  * Parameters:
  *   None
  *
  * Return Value:
- *   The number of static variables.
+ *   (N) Total number of static variable slots allocated in the current HVM state.
  *
- * Notes:
- *   - HB_DBG_VMVARSLEN() is a Harbour debugging function that provides access
- *     to the internal state of the virtual machine.
- */
+ * Side Effects:
+ *   Reads internal HVM execution engine state.
+ *-----------------------------------------------------------------------------*/
 STATIC FUNCTION nStatics()
 
 RETURN HB_DBG_VMVARSLEN()
@@ -316,21 +313,17 @@ RETURN HB_DBG_VMVARSLEN()
  * STATIC FUNCTION Static( n )
  *-----------------------------------------------------------------------------*
  * Purpose:
- *   This function returns the value of the nth static variable defined in the
- *   application.  It uses the HB_DBG_VMVARSGET() and HB_DBG_VMVARSLIST() functions
- *   (or their translated equivalents in non-xHarbour environments) to retrieve
- *   this information from the Harbour virtual machine.
+ *   Accesses a specific static variable slot in the Harbour VM static memory table.
  *
  * Parameters:
- *   n - The index of the static variable to retrieve (1-based).
+ *   n (N) 1-based index of the static variable entry to retrieve.
  *
  * Return Value:
- *   The value of the nth static variable.
+ *   (U) Value contained within the target static variable slot.
  *
- * Notes:
- *   - HB_DBG_VMVARSGET() and HB_DBG_VMVARSLIST() are Harbour debugging functions
- *     that provide access to the internal state of the virtual machine.
- */
+ * Side Effects:
+ *   Reads internal HVM execution engine state.
+ *-----------------------------------------------------------------------------*/
 STATIC FUNCTION Static( n )
 
 RETURN HB_DBG_VMVARSGET( HB_DBG_VMVARSLIST(), n )

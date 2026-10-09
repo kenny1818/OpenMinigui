@@ -329,14 +329,3 @@ HB_FUNC( DESTROYCURSOR )
    DelResource( hCur );                // Unregister the cursor resource
    hb_retl( DestroyCursor( hCur ) );   // Destroy the cursor and return result
 }
-
-// Function to get the number of scroll lines for the mouse wheel
-HB_FUNC( GETWHEELSCROLLLINES )
-{
-   UINT  pulScrollLines;
-
-   // Retrieve the number of lines per mouse wheel scroll
-   SystemParametersInfo( SPI_GETWHEELSCROLLLINES, 0, &pulScrollLines, 0 );
-
-   hmg_ret_UINT( pulScrollLines );     // Return the result
-}

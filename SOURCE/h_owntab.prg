@@ -53,77 +53,73 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 /*
    Internal metadata indexes for the _HMG_aControlMiscData1 array.
 */
-#define IDX_HEIGHT        1
-#define IDX_IMAGEFLAG     2
-#define IDX_BOTTOMTAB     4
-#define IDX_HOTTRACK      5
-#define IDX_HOTTRACKCOLOR 6
-#define IDX_INACTIVECOLOR 7
+#define IDX_HEIGHT         1
+#define IDX_IMAGEFLAG      2
+#define IDX_BOTTOMTAB      4
+#define IDX_HOTTRACK       5
+#define IDX_HOTTRACKCOLOR  6
+#define IDX_INACTIVECOLOR  7
 
 /*
    FUNCTION: OwnTabPaint
-   PURPOSE:  Handles the WM_DRAWITEM message for Tab controls when they are in owner-draw mode.
-             This allows for custom colors, fonts, and image placement on individual tabs.
-   INPUT:    lParam - A pointer to the DRAWITEMSTRUCT containing the device context and item state.
-   RETURNS:  0 if the painting is handled, 1 if the control or DC is invalid.
-   SIDE EFFECTS: Updates the UI by drawing directly to the control's Device Context (hDC).
-                 Updates internal HMG state arrays (e.g., storing the calculated tab height).
+   PURPOSE:  Handles the WM_DRAWITEM message for Tab controls in owner-draw mode.
+             Provides custom background colors, text colors, fonts, and image support
+             for individual tabs, including special handling for bottom tabs.
+   INPUT:    lParam - Pointer to the DRAWITEMSTRUCT from Windows.
+   RETURNS:  0 if painting was handled, 1 if request is invalid.
+   SIDE EFFECTS: Draws directly to the tab's Device Context. Updates internal HMG
+                 control data (height, etc.).
 */
 FUNCTION OwnTabPaint( lParam )
+
    LOCAL hDC, hBrush, hOldFont, hImage
    LOCAL aBkColor, aForeColor, aInactiveColor, aBmp, aMetrics, aBtnRect
-   LOCAL nCtrlIndex, nItemId, nTextColor, nBkColor
+   LOCAL nCtrlIndex, nItemId, nImageIndex, nTextColor, nBkColor
    LOCAL nFontSize, nTextOffset, nImageYOffset
    LOCAL x1, y1, x2, y2, xp1, yp1, xp2, yp2
    LOCAL lSelected, lBottomTab
    LOCAL cCaption
 
-   // Extract the Device Context (hDC) from the DRAWITEMSTRUCT provided by the OS.
+   /*--------------------------------------------------------------
+    * Validate owner-draw request
+    *-------------------------------------------------------------*/
    hDC := GETOWNBTNDC( lParam )
 
-   // Map the Windows window handle (HWND) to HMG's internal control index.
-   // This index is essential for accessing HMG's global property arrays.
    nCtrlIndex := AScan( _HMG_aControlHandles, GETOWNBTNHANDLE( lParam ) )
 
-   // Safety check: If the DC is invalid or the control isn't registered in HMG, abort.
-   IF Empty( hDC ) .OR. nCtrlIndex == 0
+   // Safety check: invalid DC, wrong control type, or not registered in HMG
+   IF Empty( hDC ) .OR. ;
+      GETOWNBTNCTLTYPE( lParam ) <> ODT_TAB .OR. ;
+      nCtrlIndex == 0 .OR. ;
+      _HMG_aControlType[ nCtrlIndex ] <> "TAB"
       RETURN 1
    ENDIF
 
-   /*
-      Retrieve item-specific data:
-      - nItemId: The 0-based index of the tab being painted (converted to 1-based for Harbour).
-      - aBtnRect: The bounding rectangle coordinates [Left, Top, Right, Bottom].
-      - lSelected: Boolean indicating if the tab is currently active/selected.
-      - lBottomTab: Boolean indicating if the Tab control is positioned at the bottom of the container.
-   */
-   nItemId := GETOWNBTNITEMID( lParam ) + 1
-   aBtnRect := GETOWNBTNRECT( lParam )
-   lSelected := ( AND( GETOWNBTNSTATE( lParam ), ODS_SELECTED ) == ODS_SELECTED )
+   /*--------------------------------------------------------------
+    * Read control and item state
+    *-------------------------------------------------------------*/
+   nItemId    := GETOWNBTNITEMID( lParam ) + 1
+   aBtnRect   := GETOWNBTNRECT( lParam )
+   lSelected  := ( AND( GETOWNBTNSTATE( lParam ), ODS_SELECTED ) == ODS_SELECTED )
    lBottomTab := _HMG_aControlMiscData1[ nCtrlIndex ][ IDX_BOTTOMTAB ]
 
-   // Cache the tab height in the internal HMG array for use in other layout calculations.
+   // Cache tab height for use by other HMG layout functions
    _HMG_aControlMiscData1[ nCtrlIndex ][ IDX_HEIGHT ] := aBtnRect[ 4 ] - aBtnRect[ 2 ]
 
-   /*
-      GDI Setup:
-      1. Select the control's assigned font into the DC.
-      2. Retrieve text metrics to calculate vertical centering.
-      3. Set background mode to transparent so text doesn't overwrite the tab background.
-   */
+   /*--------------------------------------------------------------
+    * Prepare GDI drawing context
+    *-------------------------------------------------------------*/
    hOldFont := SelectObject( hDC, _HMG_aControlFontHandle[ nCtrlIndex ] )
    aMetrics := GetTextMetric( hDC )
    SetBkMode( hDC, TRANSPARENT )
 
-   // Default text color is retrieved from system settings.
+   // Default system text color
    nTextColor := GetSysColor( COLOR_BTNTEXT )
    SetTextColor( hDC, GetRed( nTextColor ), GetGreen( nTextColor ), GetBlue( nTextColor ) )
 
-   /*
-      Background Color Logic:
-      Check if a specific background color is defined for this individual tab in MiscData2.
-      If not, fall back to the general control background color.
-   */
+   /*--------------------------------------------------------------
+    * Background color (per-tab or control default)
+    *-------------------------------------------------------------*/
    aBkColor := iif( ISARRAY( _HMG_aControlMiscData2[ nCtrlIndex ] ) .AND. ;
       nItemId <= Len( _HMG_aControlMiscData2[ nCtrlIndex ] ) .AND. ;
       IsArrayRGB( _HMG_aControlMiscData2[ nCtrlIndex ][ nItemId ] ), ;
@@ -133,96 +129,84 @@ FUNCTION OwnTabPaint( lParam )
    nBkColor := RGB( aBkColor[ 1 ], aBkColor[ 2 ], aBkColor[ 3 ] )
    SetBkColor( hDC, nBkColor )
 
-   // Paint the tab background using a solid brush.
    hBrush := CreateSolidBrush( aBkColor[ 1 ], aBkColor[ 2 ], aBkColor[ 3 ] )
    FillRect( hDC, aBtnRect[ 1 ], aBtnRect[ 2 ], aBtnRect[ 3 ], aBtnRect[ 4 ], hBrush )
    DeleteObject( hBrush )
 
-   /*
-      Initial Text Rectangle Calculation:
-      Calculates the vertical center based on the tab height and font height (metrics).
-   */
+   /*--------------------------------------------------------------
+    * Initial text rectangle (vertical centering base)
+    *-------------------------------------------------------------*/
    x1 := aBtnRect[ 1 ]
    y1 := Round( aBtnRect[ 4 ] / 2, 0 ) - ( aMetrics[ 1 ] - 10 )
    x2 := aBtnRect[ 3 ] - 2
    y2 := y1 + aMetrics[ 1 ]
 
-   /*
-      Image Rendering Logic:
-      If the control is configured to display images, load and draw the bitmap.
-   */
+   /*--------------------------------------------------------------
+    * Optional image support
+    *-------------------------------------------------------------*/
    IF _HMG_aControlMiscData1[ nCtrlIndex ][ IDX_IMAGEFLAG ]
-      // Ensure we don't exceed the bounds of the picture array.
-      nItemId := Min( nItemId, Len( _HMG_aControlPicture[ nCtrlIndex ] ) )
 
-      // Attempt to load the bitmap; if it fails, try loading as a generic image with transparency support.
-      hImage := LoadBitmap( _HMG_aControlPicture[ nCtrlIndex ][ nItemId ] )
+      nImageIndex := Min( nItemId, Len( _HMG_aControlPicture[ nCtrlIndex ] ) )
+
+      hImage := LoadBitmap( _HMG_aControlPicture[ nCtrlIndex ][ nImageIndex ] )
       IF Empty( hImage )
-         hImage := LoadImage( _HMG_aControlPicture[ nCtrlIndex ][ nItemId ], , , , , , nBkColor )
+         hImage := LoadImage( _HMG_aControlPicture[ nCtrlIndex ][ nImageIndex ], , , , , , nBkColor )
       ENDIF
 
       aBmp := GetBitmapSize( hImage )
-      xp1 := 4 // Horizontal margin
+
+      xp1 := 4                    // left margin
       xp2 := aBmp[ 1 ]
       yp2 := aBmp[ 2 ]
-      yp1 := Round( aBtnRect[ 4 ] / 2 - yp2 / 2, 0 ) // Vertical centering for the image
+      yp1 := Round( aBtnRect[ 4 ] / 2 - yp2 / 2, 0 )
 
-      // Shift the text starting position to the right to accommodate the image.
+      // Shift text to make room for image
       x1 += ( 2 * xp1 ) + xp2
 
-      /*
-         Draw the image using DrawGlyph.
-         The vertical position is adjusted based on whether the tab is at the bottom
-         and whether it is currently selected (providing a "pressed" or "raised" visual effect).
-      */
       IF lBottomTab
          nImageYOffset := 2 * yp1 - iif( _HMG_aControlFontSize[ nCtrlIndex ] >= 12, 8, 5 )
          DrawGlyph( hDC, aBtnRect[ 1 ] + iif( lSelected, 2 * xp1, xp1 ), nImageYOffset, ;
-            xp2, 2 * yp2 - iif( _HMG_aControlFontSize[ nCtrlIndex ] >= 12, 8, 5 ), hImage, nBkColor, .F., .F. )
+            xp2, 2 * yp2 - iif( _HMG_aControlFontSize[ nCtrlIndex ] >= 12, 8, 5 ), ;
+            hImage, nBkColor, .F., .F. )
       ELSE
          DrawGlyph( hDC, aBtnRect[ 1 ] + iif( lSelected, 2 * xp1, xp1 ), ;
             iif( lSelected, yp1 - 2, yp1 + 2 ), xp2, yp2, hImage, nBkColor, .F., .F. )
       ENDIF
+
       DeleteObject( hImage )
    ENDIF
 
-   /*
-      Text Color Selection:
-      - If selected and HotTrack is enabled, use the HotTrack color.
-      - If not selected, check for a specific inactive tab color.
-      - Fall back to high-contrast defaults (Navy or White) if no specific colors are set.
-   */
+   /*--------------------------------------------------------------
+    * Text color logic
+    *-------------------------------------------------------------*/
    IF lSelected
       IF _HMG_aControlMiscData1[ nCtrlIndex ][ IDX_HOTTRACK ]
          IF IsArrayRGB( aForeColor := _HMG_aControlMiscData1[ nCtrlIndex ][ IDX_HOTTRACKCOLOR ] )
             SetTextColor( hDC, aForeColor[ 1 ], aForeColor[ 2 ], aForeColor[ 3 ] )
          ELSEIF nBkColor == GetSysColor( COLOR_BTNFACE )
-            SetTextColor( hDC, 0, 0, 128 )     // Default Navy for selected tabs on standard background
+            SetTextColor( hDC, 0, 0, 128 )     // Navy on default background
          ELSE
-            SetTextColor( hDC, 255, 255, 255 ) // Default White for selected tabs on custom background
+            SetTextColor( hDC, 255, 255, 255 ) // White on custom background
          ENDIF
       ENDIF
    ELSEIF IsArrayRGB( aInactiveColor := _HMG_aControlMiscData1[ nCtrlIndex ][ IDX_INACTIVECOLOR ] )
       SetTextColor( hDC, aInactiveColor[ 1 ], aInactiveColor[ 2 ], aInactiveColor[ 3 ] )
    ENDIF
 
-   /*
-      Text Positioning and Drawing:
-      The vertical offset (nTextOffset) is manually adjusted based on font size thresholds.
-      This compensates for GDI font rendering variations to ensure the text looks
-      optically centered within the tab.
-   */
+   /*--------------------------------------------------------------
+    * Draw caption with font-size aware vertical adjustment
+    *-------------------------------------------------------------*/
    nFontSize := _HMG_aControlFontSize[ nCtrlIndex ]
-   cCaption := _HMG_aControlCaption[ nCtrlIndex ][ nItemId ]
+   cCaption  := _HMG_aControlCaption[ nCtrlIndex ][ nItemId ]
 
    IF lBottomTab
-      // Offset logic for tabs positioned at the bottom of the control.
+      // Bottom tabs need different offset logic
       nTextOffset := iif( lSelected, ;
          iif( nFontSize >= 24, -12, iif( nFontSize >= 18, -3, iif( nFontSize >= 12, 6, 12 ) ) ), ;
          iif( nFontSize >= 24, -18, iif( nFontSize >= 18, -8, iif( nFontSize >= 12, 0, 8 ) ) ) )
+
       DrawText( hDC, cCaption, x1, 2 * y1 - nTextOffset, x2, 2 * y2 - nTextOffset, DT_CENTER )
    ELSE
-      // Offset logic for standard top-positioned tabs.
       IF lSelected
          nTextOffset := iif( nFontSize >= 24, -9, iif( nFontSize >= 18, -5, iif( nFontSize >= 12, 0, 4 ) ) )
          DrawText( hDC, cCaption, x1, y1 - nTextOffset, x2, y2 - nTextOffset, DT_CENTER )
@@ -232,13 +216,11 @@ FUNCTION OwnTabPaint( lParam )
       ENDIF
    ENDIF
 
-   /*
-      Cleanup:
-      Restore the original font and text colors to the DC to prevent GDI resource leaks
-      or side effects on subsequent drawing operations.
-   */
+   /*--------------------------------------------------------------
+    * Cleanup GDI resources
+    *-------------------------------------------------------------*/
    SelectObject( hDC, hOldFont )
    SetBkMode( hDC, TRANSPARENT )
    SetTextColor( hDC, GetRed( nTextColor ), GetGreen( nTextColor ), GetBlue( nTextColor ) )
 
-RETURN 0     // Return 0 to indicate the owner-draw process is complete.
+RETURN 0
